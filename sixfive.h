@@ -65,6 +65,19 @@ const static std::string modeNames[] = {
 	"$ABS,Y",
 };
 
+enum SR {
+	SR_C = 0x1,
+	SR_Z = 0x2,
+	SR_I = 0x4,
+	SR_D = 0x8,
+	SR_B = 0x10,
+	SR_x5 = 0x20,
+	SR_V = 0x40,
+	SR_S = 0x80
+};
+
+//constexpr inline int mask(int l) { return 1<<l; }
+
 struct Machine {
 	uint8_t *mem;
 	uint8_t a;
@@ -73,6 +86,7 @@ struct Machine {
 	uint16_t pc;
 	uint8_t sr;
 	uint8_t sp;
+	uint32_t cycles;
 };
 
 struct OpVariant {

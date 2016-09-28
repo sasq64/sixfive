@@ -23,9 +23,9 @@ struct Emulator
 	Machine m;
 	std::array<OpVariant,256> opCodes;
 
-	void run(int cycles) {
+	void run(uint32_t cycles) {
 
-		while(cycles > 0) {
+		while(m.cycles < cycles) {
 			printf("PC %04x\n", m.pc);
 
 			uint8_t code = m.mem[m.pc++];
@@ -41,6 +41,7 @@ struct Emulator
 			case NONE:
 				break;
 			case IMM:
+			case REL:
 				ea = &m.mem[m.pc];
 				break;
 			case ABS:
@@ -75,58 +76,59 @@ struct Emulator
 			}
 			m.pc += (mode > SIZE3 ? 2 : (mode > SIZE2 ? 1 : 0));
 			opcode.op(m, ea);
-			cycles += opcode.cycles;
+			m.cycles += opcode.cycles;
 		}
 	}
 
 };
 
-
-struct Arg {
-	Arg(AdressingMode am = ILLEGAL, int val = -1) : mode(am), val(val) {}
-	AdressingMode mode;
-	int val;
-};
-
-Arg parse(const std::string &a) {
-	const static std::regex arg_regex(R"(^\(?(#?)(\$?)(\w*)(,[xy])?(\)?)(,y)?)");
-	std::smatch m;
-	AdressingMode mode = ILLEGAL;
-	int v = -1;
-	if(std::regex_match(a, m, arg_regex)) {
-		if(m[2] == "$")
-			v = stol(m[3], nullptr, 16);
-		else
-			v = stol(m[3], nullptr, 10);
-
-		if(m[5] == ")") {
-			if(m[4] == ",x" && v < 256)
-				mode = IND_X;
-			else if(m[6] == ",y" && v < 256)
-				mode = IND_Y;
-			else if(m[6] == "" && m[4] == "")
-				mode = IND;
-			else
-				mode = ILLEGAL;	
-		} else {
-			if(m[3] == "a")
-				mode = ACC;
-			else if(m[1] == "#")
-				mode = IMM;
-			else if(m[4] == ",y")
-				mode = v < 256 ? ZP_Y : ABS_Y;
-			else if(m[4] == ",x")
-				mode = v < 256 ? ZP_X : ABS_X;
-			else
-				mode = v < 256 ? ZP : ABS;
-		}
-	}
-
-	return Arg(mode, v);
-}
 
 struct Assembler {
-	void assemble(const std::string &line, uint8_t* &output, int pc = -1)
+
+	struct Arg {
+		Arg(AdressingMode am = ILLEGAL, int val = -1) : mode(am), val(val) {}
+		AdressingMode mode;
+		int val;
+	};
+
+	Arg parse(const std::string &a) {
+		const static std::regex arg_regex(R"(^\(?(#?)(\$?)(\w*)(,[xy])?(\)?)(,y)?)");
+		std::smatch m;
+		AdressingMode mode = ILLEGAL;
+		int v = -1;
+		if(std::regex_match(a, m, arg_regex)) {
+			if(m[2] == "$")
+				v = stol(m[3], nullptr, 16);
+			else
+				v = stol(m[3], nullptr, 10);
+
+			if(m[5] == ")") {
+				if(m[4] == ",x" && v < 256)
+					mode = IND_X;
+				else if(m[6] == ",y" && v < 256)
+					mode = IND_Y;
+				else if(m[6] == "" && m[4] == "")
+					mode = IND;
+				else
+					mode = ILLEGAL;	
+			} else {
+				if(m[3] == "a")
+					mode = ACC;
+				else if(m[1] == "#")
+					mode = IMM;
+				else if(m[4] == ",y")
+					mode = v < 256 ? ZP_Y : ABS_Y;
+				else if(m[4] == ",x")
+					mode = v < 256 ? ZP_X : ABS_X;
+				else
+					mode = v < 256 ? ZP : ABS;
+			}
+		}
+
+		return Arg(mode, v);
+	}
+
+	void assemble(const std::string &line, uint8_t* &output, int pc)
 	{
 		std::regex line_regex(R"(^(\w+:?)?\s*((\w+)\s*(\S+)?)?\s*(;.*)?$)");
 		std::smatch matches;
@@ -142,6 +144,13 @@ struct Assembler {
 			for(auto &ins : instructions) {
 				if(ins.name == matches[3]) {
 					for(auto &op : ins.opcodes) {
+						if(op.mode == REL && a.mode == ABS) {
+							int d = (int)a.val - pc - 2;
+							if(d <= 0x7f && d >= -0x80) {
+								a.val = d;
+								a.mode = REL;
+							}
+						}
 						if(op.mode == a.mode) {
 							printf("Matched %02x\n", op.code);
 							*output++ = op.code;
@@ -168,12 +177,15 @@ int main(int argc, char **argv) {
 	Assembler ass;
 	Emulator e;
 	e.m.mem = new uint8_t [65536];
+	int pc = 0x100;
 	uint8_t *output = &e.m.mem[0x100];
 
 	auto text = File(argv[1]).getLines(); 
 	for(const auto &t : text) {
 		puts(t.c_str());
-		ass.assemble(t, output);
+		auto *o = output;
+		ass.assemble(t, output, pc);
+		pc += (output - o);
 	}
 
 	printf("Running\n");
