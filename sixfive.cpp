@@ -26,7 +26,6 @@ struct Emulator
 	void run(uint32_t cycles) {
 
 		while(m.cycles < cycles) {
-			printf("PC %04x\n", m.pc);
 
 			uint8_t code = m.mem[m.pc++];
 			if(code == 0x60)
@@ -43,6 +42,9 @@ struct Emulator
 			case IMM:
 			case REL:
 				ea = &m.mem[m.pc];
+				break;
+			case IND:
+				//ea = &m.mem[m.mem[m.pc] | m.mem[m.pc+1]<<8];
 				break;
 			case ABS:
 				ea = &m.mem[m.mem[m.pc] | m.mem[m.pc+1]<<8];

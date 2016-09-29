@@ -181,13 +181,35 @@ Instruction instructions[] = {
 		}
 	},
 
+	{ "jsr", 
+		{
+			{0x20, 6, ABS },
+		}, [](Machine &m, uint8_t *ea)
+		{
+			m.stack[m.sp--] = m.pc & 0xff;
+			m.stack[m.sp--] = m.pc >> 8; 
+			m.pc = m.mem[*ea] | (m.mem[ea[1]]<<8);
+		}
+	},
+
+	{ "jmp", 
+		{
+			{0x4C, 3, ABS },
+			{0x6C, 5, IMM /* Really IND */ },
+		}, [](Machine &m, uint8_t *ea)
+		{
+			// TODO: Incorrect, needs to wrap around to page
+			m.pc = m.mem[*ea] | (m.mem[ea[1]]<<8);
+		}
+	},
+
 	{ "rts", 
 		{
-			{0x60, 2, NONE },
+			{0x60, 6, NONE },
 		}, [](Machine &m, uint8_t *)
 		{
-			m.pc = m.mem[ m.mem[m.sp] | (m.mem[m.sp-1]<<8) ];
-			m.sp -= 2;
+			m.pc = m.stack[m.sp+1] | (m.stack[m.sp+2]<<8);
+			m.sp += 2;
 		}
 	},
 };

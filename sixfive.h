@@ -80,6 +80,7 @@ enum SR {
 
 struct Machine {
 	uint8_t *mem;
+	uint8_t *stack;
 	uint8_t a;
 	uint8_t x;
 	uint8_t y;
