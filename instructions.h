@@ -102,6 +102,16 @@ Instruction instructions[] = {
 	{ "asl",
 		{
 			{0x0a, 2, ACC},
+		}, [](Machine &m, uint8_t *ea)
+		{
+			int rc = m.a << 1;
+			m.sr = (m.sr & 0x7c) | (rc>>8) |  (rc & SR_S) | (rc == 0 ? SR_Z : 0x0);
+			m.a = rc & 0xff;
+		}
+	},
+
+	{ "asl",
+		{
 			{0x06, 5, ZP},
 			{0x16, 6, ZP_X},
 			{0x0e, 6, ABS},
@@ -148,7 +158,6 @@ Instruction instructions[] = {
 		}, [](Machine &m, uint8_t *ea)
 		{
 			if(!(m.sr & SR_Z)) {
-				printf("Jumping to %x + %x\n", m.pc, *ea);
 				m.pc += *(int8_t*)ea;
 				m.cycles++;
 			}
@@ -164,6 +173,30 @@ Instruction instructions[] = {
 		}
 	},
 
+	{ "brk", { {0x00, 7, NONE},
+		}, [](Machine &m, uint8_t *ea)
+		{
+			//m.nmi = true;
+		}
+	},
+
+	{ "cmp",
+		{
+			{0xc9, 2, IMM},
+			{0xc5, 3, ZP},
+			{0xd5, 4, ZP_X},
+			{0xcd, 4, ABS},
+			{0xdd, 4, ABS_X},
+			{0xd9, 4, ABS_Y},
+			{0xc1, 6, IND_X},
+			{0x31, 5, IND_Y},
+		}, [](Machine &m, uint8_t *ea)
+		{
+			int rc = m.a - *ea;
+			m.sr = (m.sr & 0x7d) | (m.a & SR_S) | (m.a == 0 ? SR_Z : 0x0);
+		}
+	},
+
 
 	{ "sta", 
 		{
@@ -176,7 +209,6 @@ Instruction instructions[] = {
 			{0x91, 4, IND_Y },
 		}, [](Machine &m, uint8_t *ea)
 		{
-			printf("STA to %04x\n", (uint16_t)(ea - m.mem));
 			*ea = m.a;
 		}
 	},

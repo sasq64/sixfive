@@ -21,6 +21,7 @@ struct Emulator
 
 
 	Machine m;
+	Machine om;;
 	std::array<OpVariant,256> opCodes;
 
 	void run(uint32_t cycles) {
@@ -32,6 +33,7 @@ struct Emulator
 				return;
 
 			auto opcode = opCodes[code];
+			printf("Opcode %02x\n", code);
 
 			uint8_t *ea = nullptr;
 			int o;
@@ -79,8 +81,30 @@ struct Emulator
 			m.pc += (mode > SIZE3 ? 2 : (mode > SIZE2 ? 1 : 0));
 			opcode.op(m, ea);
 			m.cycles += opcode.cycles;
+			checkEffect();
 		}
 	}
+
+
+	void checkEffect() {
+		if(om.a != m.a)
+			printf("A := %02x\n", m.a);
+		if(om.x != m.x)
+			printf("X := %02x\n", m.x);
+		if(om.y != m.y)
+			printf("Y := %02x\n", m.y);
+		for(int i=0; i<65536; i++)
+			if(m.mem[i] != om.mem[i]) {
+				printf("%04x := %02x\n", i, m.mem[i]);
+				om.mem[i] = m.mem[i];
+			}
+		if(om.sr != m.sr)
+			printf("SR := %02x\n", m.sr);
+
+		memcpy(&om.a, &m.a, 12);
+
+	}
+
 
 };
 
@@ -178,7 +202,6 @@ int main(int argc, char **argv) {
 	using utils::File; 
 	Assembler ass;
 	Emulator e;
-	e.m.mem = new uint8_t [65536];
 	int pc = 0x100;
 	uint8_t *output = &e.m.mem[0x100];
 
@@ -192,6 +215,7 @@ int main(int argc, char **argv) {
 
 	printf("Running\n");
 	e.m.pc = 0x100;
+	e.om = e.m.clone();
 	e.run(100);
 
 	printf("\n0x00:");

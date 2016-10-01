@@ -2,6 +2,8 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <cstdlib>
+#include <cstring>
 
 class run_exception : public std::exception {
 public:
@@ -84,10 +86,28 @@ struct Machine {
 	uint8_t a;
 	uint8_t x;
 	uint8_t y;
-	uint16_t pc;
 	uint8_t sr;
+	uint16_t pc;
 	uint8_t sp;
+	uint8_t irq;
 	uint32_t cycles;
+	uint32_t memsize = 65536;
+
+	Machine() {
+		stack = new uint8_t [256];
+		mem = new uint8_t [memsize];
+	}
+
+	Machine clone() {
+		Machine m2;
+		memcpy(&m2, this, sizeof(Machine));
+		m2.mem = new uint8_t [memsize];
+		m2.stack = new uint8_t [256];
+		memcpy(m2.mem, mem, memsize);
+		memcpy(m2.stack, stack, 256);
+		return m2;
+	}
+
 };
 
 struct OpVariant {
