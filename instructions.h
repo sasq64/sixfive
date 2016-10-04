@@ -1,6 +1,6 @@
 #include "sixfive.h"
 
-Instruction instructions[] = {
+const Instruction instructions[] = {
 	{ "lda", 
 		{
 			{0xa9, 2, IMM},
@@ -61,6 +61,16 @@ Instruction instructions[] = {
 		}, [](Machine &m, uint8_t *ea)
 		{
 			m.sr &= 0xfe;
+		}
+	},
+
+	{ "inx",
+		{
+			{0xe8, 2, NONE},
+		}, [](Machine &m, uint8_t *ea)
+		{
+			m.x++;
+			m.sr = (m.sr & 0x7d) | (m.x & SR_S) | (m.x == 0 ? SR_Z : 0x0);
 		}
 	},
 
@@ -218,8 +228,8 @@ Instruction instructions[] = {
 			{0x20, 6, ABS },
 		}, [](Machine &m, uint8_t *ea)
 		{
-			m.stack[m.sp--] = m.pc & 0xff;
-			m.stack[m.sp--] = m.pc >> 8; 
+			m.stack[m.sp-- & 0xff] = m.pc & 0xff;
+			m.stack[m.sp-- & 0xff] = m.pc >> 8; 
 			m.pc = m.mem[*ea] | (m.mem[ea[1]]<<8);
 		}
 	},

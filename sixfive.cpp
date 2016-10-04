@@ -14,6 +14,7 @@ struct Emulator
 		for(auto &i : instructions) {
 			for(auto &op : i.opcodes) {
 				opCodes[op.code] = op;
+				opCodes[op.code].name = i.name.c_str();
 				opCodes[op.code].op = i.op;
 			}
 		}
@@ -29,15 +30,19 @@ struct Emulator
 		while(m.cycles < cycles) {
 
 			uint8_t code = m.mem[m.pc++];
-			if(code == 0x60)
+			if(code == 0x60 && m.sp == 0xff)
 				return;
 
 			auto opcode = opCodes[code];
-			printf("Opcode %02x\n", code);
+			//printf("Opcode %02x = %s\n", code, opcode.name);
 
 			uint8_t *ea = nullptr;
 			int o;
 			auto mode = opcode.mode;
+			//printf("%04x : %02x %s %s\n", m.pc-1, code, opcode.name, modeNames[mode].c_str());
+			ea = m.mem;
+			//ea = &m.mem[m.mem[m.pc] | m.mem[m.pc+1]<<8];
+
 			switch(mode) {
 			case NONE:
 				break;
@@ -75,13 +80,14 @@ struct Emulator
 				ea = &m.mem[ m.mem[m.pc] ];
 				break;
 			default:
-				printf("PC %04x, op %02x\n", m.pc, code);
-				throw new run_exception("Illegal opcode");
+				break;
+				//printf("PC %04x, op %02x\n", m.pc, code);
+				//throw new run_exception("Illegal opcode");
 			}
 			m.pc += (mode > SIZE3 ? 2 : (mode > SIZE2 ? 1 : 0));
 			opcode.op(m, ea);
 			m.cycles += opcode.cycles;
-			checkEffect();
+			//checkEffect();
 		}
 	}
 
@@ -154,10 +160,24 @@ struct Assembler {
 		return Arg(mode, v);
 	}
 
-	void assemble(const std::string &line, uint8_t* &output, int pc)
-	{
+	int assemble(const std::string &code, uint8_t *output, int pc) {
+		int total = 0;
+		for(const auto &line :  utils::split(code, "\n")) {
+			int rc= assembleLine(line, output, pc);
+			if(rc < 0)
+				throw run_exception("Unknown opcode " + line);
+			printf("asm to %p %x = %d\n", output, pc, rc);
+			pc += rc;
+			output += rc;
+			total += rc;
+		}
+		return total;
+	}
+
+	int assembleLine(const std::string &line, uint8_t *output, int pc) {
 		std::regex line_regex(R"(^(\w+:?)?\s*((\w+)\s*(\S+)?)?\s*(;.*)?$)");
 		std::smatch matches;
+		if(line == "") return 0;
 		if(std::regex_match(line, matches, line_regex)) {
 			Arg a;
 			if(matches[4] != "") {
@@ -179,22 +199,52 @@ struct Assembler {
 						}
 						if(op.mode == a.mode) {
 							printf("Matched %02x\n", op.code);
+							auto saved = output;
 							*output++ = op.code;
 							if(a.mode > SIZE2)
-							   *output++ = a.val & 0xff;
+								*output++ = a.val & 0xff;
 							if(a.mode > SIZE3)
-								*output++ = a.val >> 8;	
+								*output++ = a.val >> 8;
+							return output - saved;
 						};
 					}
 				}
 			}
 		}
+		return -1;
 	}
-
 };
 
+#define SPEED_TEST
 
+#ifdef SPEED_TEST
 
+#include <benchmark/benchmark.h>
+
+static void Bench_emulate(benchmark::State &state) {
+
+	Emulator emu;
+	Assembler ass;
+	ass.assemble(R"(
+	lda $1000,x
+	sta $2000,x
+	inx
+	bne $500
+	beq $500
+)", &emu.m.mem[0x500], 0x500);
+	while(state.KeepRunning())
+	{
+		emu.m.cycles = 0;
+		emu.m.pc = 0x500;
+		emu.run(3500);
+	}
+};
+
+BENCHMARK(Bench_emulate);
+
+BENCHMARK_MAIN();
+
+#else
 
 int main(int argc, char **argv) {
 
@@ -203,14 +253,11 @@ int main(int argc, char **argv) {
 	Assembler ass;
 	Emulator e;
 	int pc = 0x100;
-	uint8_t *output = &e.m.mem[0x100];
 
 	auto text = File(argv[1]).getLines(); 
 	for(const auto &t : text) {
 		puts(t.c_str());
-		auto *o = output;
-		ass.assemble(t, output, pc);
-		pc += (output - o);
+		pc += ass.assembleLine(t, &e.m.mem[pc], pc);
 	}
 
 	printf("Running\n");
@@ -228,3 +275,5 @@ int main(int argc, char **argv) {
 
 	return 0;
 }
+
+#endif

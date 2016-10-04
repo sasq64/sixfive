@@ -5,14 +5,15 @@
 #include <cstdlib>
 #include <cstring>
 
-class run_exception : public std::exception {
+class run_exception : public std::exception
+{
 public:
 	run_exception(const std::string &m = "RUN Exception") : msg(m) {}
 	virtual const char *what() const throw() { return msg.c_str(); }
+
 private:
 	std::string msg;
 };
-
 
 /*
  * Assembly line format:
@@ -80,7 +81,8 @@ enum SR {
 
 //constexpr inline int mask(int l) { return 1<<l; }
 
-struct Machine {
+struct Machine
+{
 	uint8_t *mem;
 	uint8_t *stack;
 	uint8_t a;
@@ -91,9 +93,11 @@ struct Machine {
 	uint8_t sp;
 	uint8_t irq;
 	uint32_t cycles;
-	uint32_t memsize = 65536;
+	uint32_t memsize;
 
 	Machine() {
+		memset(this, 0, sizeof(Machine));
+		memsize = 65536;
 		stack = new uint8_t [256];
 		mem = new uint8_t [memsize];
 	}
@@ -115,6 +119,7 @@ struct OpVariant {
 	OpVariant(uint8_t code, uint8_t cycles, AdressingMode mode) : code(code), cycles(cycles), mode(mode) {}
 	uint8_t code;
 	int cycles;
+	const char *name;
 	AdressingMode mode;
 	void (*op)(Machine&, uint8_t*);
 };
@@ -125,4 +130,3 @@ struct Instruction {
 	std::vector<OpVariant> opcodes;
 	void (*op)(Machine&, uint8_t*);
 };
-
