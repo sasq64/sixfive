@@ -68,10 +68,10 @@ int assembleLine(const std::string &line, uint8_t *output, int pc) {
 				for(auto &op : ins.opcodes) {
 					if(op.mode == Rel && a.mode == Abs) {
 						int d = (int)a.val - pc - 2;
-						if(d <= 0x7f && d >= -0x80) {
+						//if(d <= 0x7f && d >= -0x80) {
 							a.val = d;
 							a.mode = Rel;
-						}
+						//}
 					}
 					if(op.mode == a.mode) {
 						printf("Matched %02x\n", op.code);

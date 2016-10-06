@@ -18,10 +18,7 @@ struct Machine
 	Word sr;
 	Word sp;
 
-	union {
-		Word *pcp;
-		uintptr_t pc;
-	};
+	uint16_t pc;
 
 	Word lastWord;
 	Word *stack;

@@ -1,3 +1,4 @@
+	* = 0x1000
 label:
 	ldx #9
 	ldy #11

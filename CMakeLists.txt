@@ -5,15 +5,16 @@ set(SOURCE_FILES
 main.cpp
 emulator.cpp
 assembler.cpp
+parser.cpp
 #../apone/mods/coreutils/log.cpp
 #../apone/mods/coreutils/format.cpp
 #../apone/mods/coreutils/utils.cpp
 ../apone/mods/coreutils/file.cpp
 )
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O2 -std=c++11")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O2 -std=c++14")
 # SET(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} --Wl,-map,sixfive.map")
-include_directories(/usr/local/include ../apone/mods)
+include_directories(. /usr/local/include ../apone/mods)
 
 add_definitions(-DUSE_APONE)
 
