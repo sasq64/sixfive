@@ -1,4 +1,5 @@
 #include <vector>
+#include <unordered_map>
 
 #include "emulator.h"
 
@@ -17,7 +18,7 @@ constexpr bool StatusOpt = false;
 inline Word& ReadPC(Machine&m) { return m.mem[m.pc++]; }
 template <bool ALIGN = AlignReads> inline uint16_t ReadPCW(Machine &m);
 template <> inline uint16_t ReadPCW<true>(Machine &m) {  m.pc += 2; return m.mem[m.pc - 2] | (m.mem[m.pc-1]<<8); }
-template <> inline uint16_t ReadPCW<false>(Machine &m) { return *(uint16_t*)&m.mem[m.pc += 2]; }
+template <> inline uint16_t ReadPCW<false>(Machine &m) { m.pc += 2; return *(uint16_t*)&m.mem[m.pc - 2]; }
 
 inline uint16_t Read16(Machine &m, uint16_t offs) {
 	return m.mem[offs] | (m.mem[offs+1]<<8);
@@ -54,11 +55,13 @@ template <> struct flags<false>
 	}
 
 	inline static void set_SZC(Machine &m, int res) {
-		m.sr = (m.sr & 0x7c) | (res & 0x80) | (!(res & 0xff) << 1) | (res>>8);
+		printf("RES %x SR %x\n", res, m.sr);
+		m.sr = (m.sr & 0x7c) | (res & 0x80) | (!(res & 0xff) << 1) | ((res>>8)&1);
+		printf("RES %x SR %x\n", res, m.sr);
 	}
 
-	template <int REG> inline static void set_SZCV(Machine &m, int res, int arg) {
-		m.sr = (m.sr & 0xbc) | (Reg<REG>(m) & 0x80) | (!Reg<REG>(m) << 1) | (res>>8) | ((~(m.a ^ arg) & (m.a ^ res) & 0x80)>>1);
+	template inline static void set_SZCV(Machine &m, int res, int arg) {
+		m.sr = (m.sr & 0x3c) | (res & 0x80) | (!res << 1) | ((res>>8)&1) | ((~(m.a ^ arg) & (m.a ^ res) & 0x80)>>1);
 	}
 };
 
@@ -76,7 +79,7 @@ template <> struct flags<true>
 
 	template <int REG> inline static void set_SZCV(Machine &m, int res, int arg) {
 		m.lastWord = Reg<REG>(m);
-		m.sr = (m.sr & 0xbc) | (res>>8) | ((~(m.a ^ arg) & (m.a ^ res) & 0x80)>>1);
+		m.sr = (m.sr & 0x3c) | (res>>8) | ((~(m.a ^ arg) & (m.a ^ res) & 0x80)>>1);
 	}
 
 	inline static Word get(Machine &m) {
@@ -84,7 +87,7 @@ template <> struct flags<true>
 	}
 };
 
-enum STATUSFLAGS { CARRY, ZERO, IRQ, DECIMAL, BRK, xXx, OVERFLOW, SIGN };
+enum STATUSFLAGS { CARRY, ZERO, IRQ, DECIMAL, BRK, xXx, OVER, SIGN };
 
 template <int FLAG, bool v> void Set(Machine &m) {
 	m.sr = (m.sr & ~(1<<FLAG)) | (v<<FLAG);
@@ -146,43 +149,97 @@ template <> inline bool check<EQ, true>(Machine &m) {
 template <> inline bool check<NE, true>(Machine &m) {
 	return m.lastWord != 0;
 }
-// Return a reference to the byte referenced by the opcode argument
-template <int MODE, bool ALIGN = AlignReads> Word &Mem(Machine &m);
 
-template <> inline Word &Mem<IMM>(Machine &m) {
+//
+//
+// MEMORY ACCESS
+//
+//
+
+
+static constexpr uint16_t IOMASK = 0xff00;
+static constexpr uint16_t IOBANK = 0xd000;
+Word get_io(Machine &m, uint16_t addr) {
+	return getchar();
+};
+
+void put_io(Machine &m, uint16_t addr, uint8_t v) {
+	putchar(v);
+};
+
+
+// FETCH ADDRESS
+
+template <int MODE> uint16_t Address(Machine &m);
+
+template <> inline uint16_t Address<ZP>(Machine &m) {
 	return ReadPC(m);
 }
 
-template <> inline Word &Mem<ZP>(Machine &m) {
-	return m.mem[ReadPC(m)];
+template <> inline uint16_t Address<ZPX>(Machine &m) {
+	return ReadPC(m) + m.x;
 }
 
-template <> inline Word &Mem<ZPX>(Machine &m) {
-	return m.mem[ReadPC(m) + m.x];
+template <> inline uint16_t Address<ZPY>(Machine &m) {
+	return ReadPC(m) + m.y;
 }
 
-template <> inline Word &Mem<ZPY>(Machine &m) {
-	return m.mem[ReadPC(m) + m.y];
+template <> inline uint16_t Address<ABS>(Machine &m) {
+	return ReadPCW(m);
 }
 
-template <> inline Word &Mem<ABS>(Machine &m) {
-	return m.mem[ReadPCW(m)];
+template <> inline uint16_t Address<ABSX>(Machine &m) {
+	return ReadPCW(m) + m.x;
 }
 
-template <> inline Word &Mem<ABSX>(Machine &m) {
-	return m.mem[ReadPCW(m) + m.x];
+template <> inline uint16_t Address<ABSY>(Machine &m) {
+	return ReadPCW(m) + m.y;
 }
 
-template <> inline Word &Mem<ABSY>(Machine &m) {
-	return m.mem[ReadPCW(m) + m.y];
+template <> inline uint16_t Address<INDX>(Machine &m) {
+	return Read16(m, ReadPC(m) + m.x);
 }
 
-template <> inline Word &Mem<INDX>(Machine &m) {
-	return m.mem[Read16(m, ReadPC(m) + m.x)];
+template <> inline uint16_t Address<INDY>(Machine &m) {
+	return Read16(m, ReadPC(m)) + m.y;
 }
 
-template <> inline Word &Mem<INDY>(Machine &m) {
-	return m.mem[Read16(m, ReadPC(m)) + m.y];
+// WRITE MEMORY
+
+template<bool ALIGN = AlignReads> inline void Write(Machine &m, uint16_t adr, Word v) {
+	if((adr & IOMASK) == IOBANK)
+		put_io(m, adr, v);
+	else
+		m.mem[adr] = v;
+}
+
+template <int MODE, bool ALIGN = AlignReads> inline void Write(Machine &m, Word v) {
+	uint16_t adr = Address<MODE>(m);
+	if((adr & IOMASK) == IOBANK)
+		put_io(m, adr, v);
+	else
+		m.mem[adr] = v;
+}
+
+// READ MEMORY
+
+template <bool ALIGN = AlignReads> Word Read(Machine &m, uint16_t adr) {
+	if((adr & IOMASK) == IOBANK)
+		return get_io(m, adr);
+	else
+		return m.mem[adr];
+}
+
+template <int MODE, bool ALIGN = AlignReads> Word Read(Machine &m) {
+	uint16_t adr = Address<MODE>(m);
+	if((adr & IOMASK) == IOBANK)
+		return get_io(m, adr);
+	else
+		return m.mem[adr];
+}
+
+template <> inline  Word Read<IMM>(Machine &m) {
+	return ReadPC(m);
 }
 
 ///
@@ -191,13 +248,12 @@ template <> inline Word &Mem<INDY>(Machine &m) {
 ///
 ///
 
-
 template <int REG, int MODE> void Store(Machine &m) {
-	Mem<MODE>(m) = Reg<REG>(m);
+	Write<MODE>(m, Reg<REG>(m));
 }
 
 template <int REG, int MODE> void Load(Machine &m) {
-	Reg<REG>(m) = Mem<MODE>(m);
+	Reg<REG>(m) = Read<MODE>(m);
 	flags<>::set_SZ<REG>(m);
 }
 
@@ -213,58 +269,58 @@ void Php(Machine &m) {
 }
 
 template<int MODE, int inc> void Inc(Machine &m) {
-	auto rc = (Mem<MODE>(m) += inc);
+	auto adr = Address<MODE>(m);
+	auto rc = Read(m, adr) + inc;
+	Write(m, adr, rc);
 	flags<>::set_SZ(m, rc);
 }
 
 // === COMPARE, ADD & SUBTRACT
 
 template<int REG, int MODE> void Cmp(Machine &m) {
-	auto z = Mem<MODE>(m);
-	int rc = Reg<REG>(m) - z;
+	Word z = ~Read<MODE>(m);
+	int rc = Reg<REG>(m) + z + 1;
 	flags<>::set_SZC(m, rc);
 }
 
 template<int MODE> void Sbc(Machine &m) {
-	auto z = Mem<MODE>(m);
-	int rc = m.a - z - (m.sr & 1);
-
-	//printf("## SBC %x + %x + %x = %x\n", m.a, z, m.sr & 1, rc);
-	flags<>::set_SZCV<A>(m, rc, z);
+	Word z = ~(Read<MODE>(m));
+	int rc = m.a + z + (m.sr & 1);
+	flags<>::set_SZCV(m, rc, z);
 	m.a = rc & 0xff;
 }
 
 template<int MODE> void Adc(Machine &m) {
-	auto z = Mem<MODE>(m);
+	auto z = Read<MODE>(m);
 
 	int rc = m.a + z + (m.sr & 1);
-	//printf("## ADC %x + %x + %x = %x\n", m.a, z, m.sr & 1, rc);
-	//flags<>::set_SZCV<A>(m, rc, z);
+	flags<>::set_SZCV(m, rc, z);
 	m.a = rc & 0xff;
 }
 
 
 template<int MODE> void And(Machine &m) {
-	m.a &= Mem<MODE>(m);
+	m.a &= Read<MODE>(m);
 	flags<>::set_SZ<A>(m);
 }
 
 template<int MODE> void Ora(Machine &m) {
-	m.a |= Mem<MODE>(m);
+	m.a |= Read<MODE>(m);
 	flags<>::set_SZ<A>(m);
 }
 
 template<int MODE> void Eor(Machine &m) {
-	m.a ^= Mem<MODE>(m);
+	m.a ^= Read<MODE>(m);
 	flags<>::set_SZ<A>(m);
 }
 
 // === SHIFTS & ROTATES
 
 template<int MODE> void Asl(Machine &m) {
-	int rc = Mem<MODE>(m) << 1;
+	auto adr = Address<MODE>(m);
+	int rc = Read(m, adr) << 1;
 	flags<>::set_SZC(m, rc);
-	Mem<MODE>(m) = rc & 0xff;
+	Write(m, adr, rc & 0xff);
 }
 
 template<> void Asl<ACC>(Machine &m) {
@@ -274,23 +330,30 @@ template<> void Asl<ACC>(Machine &m) {
 }
 
 template<int MODE> void Lsr(Machine &m) {
-	int rc = Mem<MODE>(m);
+	auto adr = Address<MODE>(m);
+	int rc = Read(m, adr);
 	m.sr = (m.sr & 0x7f) | ( rc & 1);
-	Mem<MODE>(m) = (rc >> 1) & 0xff;
+	Write(m, adr, (rc >> 1) & 0xff);
 	flags<>::set_SZ(m, rc);
 }
 
+template<> void Lsr<ACC>(Machine &m) {
+	m.sr = (m.sr & 0x7f) | ( m.a & 1);
+	m.a >>= 1;
+	flags<>::set_SZ<A>(m);
+}
+
 template<int MODE> void Ror(Machine &m) {
-	int rc = Mem<MODE>(m) | (m.sr << 8);
+	int rc = Read<MODE>(m) | (m.sr << 8);
 	m.sr = (m.sr & 0x7f) | ( rc & 1);
-	Mem<MODE>(m) = (rc >> 1) & 0xff;
+	Read<MODE>(m) = (rc >> 1) & 0xff;
 	flags<>::set_SZ(m, rc);
 }
 
 template<int MODE> void Rol(Machine &m) {
-	int rc = (Mem<MODE>(m) << 1) | (m.sr & 1);
+	int rc = (Read<MODE>(m) << 1) | (m.sr & 1);
 	flags<>::set_SZC(m, rc);
-	Mem<MODE>(m) = rc & 0xff;
+	Read<MODE>(m) = rc & 0xff;
 }
 
 std::vector<Instruction> instructionTable  {
@@ -462,19 +525,28 @@ std::vector<Instruction> instructionTable  {
 	{ "cli", { { 0x78, 2, None, Set<IRQ, false> } } },
 	{ "sed", { { 0xf8, 2, None, Set<DECIMAL, true> } } },
 	{ "cld", { { 0xd8, 2, None, Set<DECIMAL, false> } } },
-	{ "clv", { { 0xb8, 2, None, Set<OVERFLOW, false> } } },
+	{ "clv", { { 0xb8, 2, None, Set<OVER, false> } } },
+
+	{ "lsr", { 
+		{ 0x4a, 2, None, Lsr<ACC>},
+		{ 0x4a, 2, Acc, Lsr<ACC>},
+		{ 0x46, 5, Zp, Lsr<ZP>},
+		{ 0x56, 6, Zp_x, Lsr<ZPX>},
+		{ 0x4e, 6, Abs, Lsr<ABS>},
+		{ 0x5e, 7, Abs_x, Lsr<ABSX>},
+	} },
 
 	{ "rts", {
 		{ 0x60, 2, None, [](Machine &m) {  
-			m.pc = m.stack[m.sp+1] | (m.stack[m.sp+2]<<8);
+			m.pc = (m.stack[m.sp+2] | (m.stack[m.sp+1]<<8))+1;
 			m.sp += 2;
 		}}
 	} },
 
 	{ "jsr", {
-		{ 0x60, 3, Abs, [](Machine &m) {
-			m.stack[m.sp-- & 0xff] = m.pc & 0xff;
-			m.stack[m.sp-- & 0xff] = m.pc >> 8; 
+		{ 0x20, 3, Abs, [](Machine &m) {
+			m.stack[m.sp-- & 0xff] = (m.pc+1) & 0xff;
+			m.stack[m.sp-- & 0xff] = (m.pc+1) >> 8; 
 			m.pc = ReadPCW(m);
 	   }}
    	} },
@@ -498,23 +570,27 @@ void init(Machine &m) {
 
 void checkEffect(Machine &m) {
 	static Machine om;
+	printf("[ ");
 	if(om.pc != m.pc)
-		printf("PC := %04x\n", (unsigned)m.pc);
+		printf("PC := %04x ", (unsigned)m.pc);
 	if(om.a != m.a)
-		printf("A := %02x\n", m.a);
+		printf("A := %02x ", m.a);
 	if(om.x != m.x)
-		printf("X := %02x\n", m.x);
+		printf("X := %02x ", m.x);
 	if(om.y != m.y)
-		printf("Y := %02x\n", m.y);
+		printf("Y := %02x ", m.y);
 	if(om.sr != m.sr)
-		printf("SR := %02x\n", m.sr);
+		printf("SR := %02x ", m.sr);
 	if(om.sp != m.sp)
-		printf("SP := %02x\n", m.sp);
+		printf("SP := %02x ", m.sp);
+	printf("]\n");
 	for(int i=0; i<65536; i++)
 		if(m.mem[i] != om.mem[i]) {
-			printf("%04x := %02x\n", i, m.mem[i]);
+			printf("%04x := %02x ", i, m.mem[i]);
 			om.mem[i] = m.mem[i];
 		}
+	puts("");
+
 	om.a = m.a;
 	om.x = m.x;
 	om.y = m.y;
@@ -522,6 +598,12 @@ void checkEffect(Machine &m) {
 	om.sr = m.sr;
 	om.pc = m.pc;
 	om.sp = m.sp;
+}
+
+std::unordered_map<uint16_t, std::function<void(Machine &m)>> breaks;
+
+void set_break(uint16_t pc, std::function<void(Machine &m)> f) {
+	breaks[pc] = f;
 }
 
 void run(Machine &m, uint32_t cycles) {
@@ -535,9 +617,11 @@ void run(Machine &m, uint32_t cycles) {
 		if(code == 0x60 && m.sp == 0xff)
 			return;
 		auto &op = jumpTable[code];
-		printf("OPCODE: %s\n", opNames[code]);
+		//printf("OPCODE: %s\n", opNames[code]);
 		op.op(m);
 		m.cycles += op.cycles;
+		if(breaks[m.pc])
+			breaks[m.pc](m);
 	}
 }
 

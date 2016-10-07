@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <functional>
 #include <stdexcept>
 
 namespace sixfive {
@@ -83,6 +84,7 @@ private:
 
 void init(Machine &m);
 void run(Machine &m, uint32_t cycles);
+void set_break(uint16_t, std::function<void(Machine &m)> f);
 
 extern std::vector<Instruction> instructionTable;
 } // namespace
