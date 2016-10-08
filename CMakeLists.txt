@@ -12,7 +12,7 @@ parser.cpp
 ../apone/mods/coreutils/file.cpp
 )
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O2 -std=c++14")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0 -std=c++14")
 # SET(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} --Wl,-map,sixfive.map")
 include_directories(. /usr/local/include ../apone/mods)
 

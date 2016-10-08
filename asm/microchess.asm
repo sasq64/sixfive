@@ -700,8 +700,7 @@ type
 		lsr			;
 		and   	#$01		; strip LSB
 		clc			;
-		adc   	temp		; combine row & col to determine
-square color
+		adc   	temp		; combine row & col to determine square color
 		and   	#$01		; is board square white or blk?
 		bne	pout25 		; white, print space
 		lda   	#"*"		; black, print *
@@ -799,8 +798,7 @@ KIN        	LDA   	#"?"
 ;
 Init_6551      lda   #$1F               ; 19.2K/8/1
                sta   ACIActl            ; control reg
-               lda   #$0B               ; N parity/echo off/rx int off/
-dtr active low
+               lda   #$0B               ; N parity/echo off/rx int off/ dtr active low
                sta   ACIAcmd            ; command reg
                rts                      ; done
 ;
@@ -808,7 +806,7 @@ dtr active low
 ;
 syskin         lda   ACIASta            ; Serial port status
                and   #$08               ; is recvr full
-               beq   syskin             ; no char to get
+               ;beq   syskin             ; no char to get
                Lda   ACIAdat            ; get chr
                RTS                      ;
 ;
@@ -817,7 +815,7 @@ syskin         lda   ACIASta            ; Serial port status
 syschout       PHA                      ; save registers
 ACIA_Out1      lda   ACIASta            ; serial port status
                and   #$10               ; is tx buffer empty
-               beq   ACIA_Out1          ; no
+               ;beq   ACIA_Out1          ; no
                PLA                      ; get chr
                sta   ACIAdat            ; put character to Port
                RTS                      ; done
@@ -829,11 +827,11 @@ syshexout      PHA                     ;  prints AA hex digits
                LSR                     ;
                JSR   PrintDig          ;
                PLA                     ;
-PrintDig       PHY                     ;  prints A hex nibble (low 4 bits)
+PrintDig       STY   temp              ;  prints A hex nibble (low 4 bits)
                AND   #$0F              ;
                TAY                     ;
                LDA   Hexdigdata,Y      ;
-               PLY                     ;
+               ldy   temp              ;
                jmp   syschout          ;
 
 Hexdigdata	.byte	"0123456789ABCDEF"

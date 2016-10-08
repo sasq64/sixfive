@@ -5,6 +5,7 @@
 #include <vector>
 #include <functional>
 #include <stdexcept>
+#include <memory>
 
 namespace sixfive {
 
@@ -13,18 +14,21 @@ using SWord = int8_t;
 
 struct Machine
 {
-	Word a;
-	Word x;
-	Word y;
-	Word sr;
-	Word sp;
+	void setPC(const int16_t &pc);
 
-	uint16_t pc;
+	Machine();
+	~Machine();
+    Machine(Machine && op) noexcept;
+    Machine& operator=(Machine && op) noexcept;
 
-	Word lastWord;
-	Word *stack;
-	Word mem[65536];
-	uint32_t cycles;
+	void writeRam(uint16_t org, const uint8_t *data, int size);
+	void init();
+	void run(uint32_t cycles);
+	void set_break(uint16_t pc, std::function<void(Machine &m)> f);
+
+	class Impl;
+private:
+	std::unique_ptr<Impl> impl;
 };
 
 enum {BAD, NONE, ACC, SIZE2, IMM, REL, ZP, ZPX, ZPY, INDX, INDY, SIZE3, IND, ABS, ABSX, ABSY };
@@ -53,7 +57,7 @@ enum AdressingMode
 	Abs_y,
 };
 
-using OpFunc = void(*)(Machine&);
+using OpFunc = void(*)(Machine::Impl&);
 
 struct Opcode {
 	Opcode() {}
@@ -82,9 +86,6 @@ private:
 	std::string msg;
 };
 
-void init(Machine &m);
-void run(Machine &m, uint32_t cycles);
-void set_break(uint16_t, std::function<void(Machine &m)> f);
 
 extern std::vector<Instruction> instructionTable;
 } // namespace

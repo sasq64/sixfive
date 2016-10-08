@@ -91,6 +91,13 @@ int assembleLine(const std::string &line, uint8_t *output, int pc) {
 		for(auto &ins : instructionTable) {
 			if(ins.name == matches[3]) {
 				for(auto &op : ins.opcodes) {
+					if(op.mode == Abs_y && a.mode == Zp_y) {
+						a.mode = Abs_y;
+					}
+
+					if(op.mode == Abs_x && a.mode == Zp_x) {
+						a.mode = Abs_x;
+					}
 
 					if(op.mode == Abs && a.mode == Zp) {
 						// An opcode that requires Abs. We assume Zp versions are always

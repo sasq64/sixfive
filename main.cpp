@@ -14,7 +14,7 @@ int main(int argc, char **argv)
 {
 	using namespace sixfive;
 	Machine m;
-	init(m);
+	m.init();
 
 	FILE *fp = fopen(argv[1], "rb");
 	fseek(fp, 0, SEEK_END);
@@ -28,14 +28,15 @@ int main(int argc, char **argv)
 	//std::unordered_map<uint16_t, std::string> reqs;
 
 
-	parse(&source[0], [&](uint16_t org, const std::string &op, const std::string &arg) -> int {
+	bool ok = parse(&source[0], [&](uint16_t org, const std::string &op, const std::string &arg) -> int {
 		if(op == "b") {
-			memcpy(&m.mem[org], &arg[0], arg.size());
+			//memcpy(&m.mem[org], &arg[0], arg.size());
+			m.writeRam(org, (uint8_t*)&arg[0], arg.size());
 			return arg.size();
 		}
 		printf(">> %s %s\n", op.c_str(), arg.c_str());
 		if(op[0] == '@') {
-			//reqs[org] = arg;
+/*			//reqs[org] = arg;
 			std::string what, value;
 			std::vector<std::pair<int, int>> reqs;
 			enum { RA = 0x10000, RX, RY, RSR, RSP, RPC };
@@ -70,16 +71,25 @@ int main(int argc, char **argv)
 					}
 
 			});
-
+*/
 			return 0;
 		}
-		int len = assemble(org, &m.mem[org], std::string(" ") + op + " " + arg);
+		uint8_t temp[4];
+		int len = assemble(org, &temp[0], std::string(" ") + op + " " + arg);
+		if(len > 0)
+			m.writeRam(org, &temp[0], len);
 		return len;
 	});
 
-	m.pc = 0x1000;
-	run(m, 1000);
+	if(!ok) {
+		printf("Parse failed\n");
+		return -1;
+	}
+	//return 0;
+	m.setPC(0x01000);
+	//m.pc = 0x1000;
+	m.run(1000);
 
-	printf("%02x\n", m.mem[0x2000]);
+	//printf("%02x\n", m.mem[0x2000]);
 	return 0;
 }
