@@ -1,8 +1,11 @@
 
 #include <boost/spirit.hpp>
 #include <unordered_map>
+#include <vector>
+#include <functional>
 #include <stack>
 #include <string>
+#include <cstring>
 
 using namespace boost::spirit;
 
@@ -84,7 +87,7 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 		};
 
 		Fn fop = [=](auto a, auto b) { 
-			 static const char* xchars = "<>/*+-=%|&^!~";
+			static const char* xchars = "<>/*+-=%|&^!~";
 			b = a;
 			while(strchr(xchars, *b)) b++;
 			auto op = std::string(a, b);
@@ -96,8 +99,7 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 			valstack.push(ops[op](v0, v1));
 		};
 
-		Fn fexpression = [=](auto a, auto b) {
-			//printf("STACK: %f\n", valstack.top());
+		Fn fexpression = [=](auto, auto) {
 			expValue = valstack.top();
 			valstack.pop();
 		};
@@ -132,10 +134,6 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 			symbols[label] = state.org;
 		};
 
-		Fn fasmcode = [=](auto a, auto b) {
-			//printf("OPCODE %s\n", opcodeName.c_str());
-		};
-
 
 		Fn fopcode = [=](auto a, auto b) {
 			opcodeName = std::string(a,b);
@@ -157,9 +155,6 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 		};
 
 		Fn fasmline = [=](auto, auto) -> bool {
-			//if(labelName != "")
-			//	symbols[labelName] = state.org;
-			//labelName = "";
 			std::transform(opcodeName.begin(), opcodeName.end(), opcodeName.begin(), ::tolower);
 			int len = grammar.encode(state.org, opcodeName, opcodeArg);
 			if(len < 0) {
@@ -167,7 +162,6 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 				return false;
 			} else
 				state.org += len;
-			//printf("ASMLINE\n");
 			return true;
 		};
 
@@ -176,9 +170,6 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 		};
 
 		Fn femptyline = [=](auto, auto) {
-			//if(labelName != "")
-			//	symbols[labelName] = state.org;
-			//labelName = "";
 		};
 
 		Fn fdefline = [=](auto, auto) {
@@ -272,7 +263,7 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 
 		Rule label_ap = lexeme_d[ (ch_p('.') | ch_p('_') | alpha_p)[fsol] >> *(ch_p('_') | alnum_p) >> (ch_p(':') | eps_p(fwassol)) ];
 
-		Rule asmline_ap = !label_ap[flabel] >> asmcode_ap[fasmcode] >> (comment_p(";") | eol_p);
+		Rule asmline_ap = !label_ap[flabel] >> asmcode_ap >> (comment_p(";") | eol_p);
 		Rule emptyline_ap = !label_ap[flabel] >> (comment_p(";") | eol_p);
 
 		Rule defline_ap = symbol_p()[SetMe(symbolName)] >> '=' >> expression_ap >> (comment_p(";") | eol_p);
@@ -280,7 +271,7 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 		Rule metaline_ap = lexeme_d[ ch_p('@')  >> symbol_p() ][SetMe(symbolName)] >> lexeme_d[ *print_p ][SetMe(argExp)] >> (comment_p(";") | eol_p);
 
 		Rule dataline_ap = !label_ap[flabel] >> as_lower_d[ str_p("db") | str_p(".byte") ] >>
-		   	( confix_p('"', (*c_escape_ch_p)[fstrdata], '"') | 
+		      ( confix_p('"', (*c_escape_ch_p)[fstrdata], '"') |
 			  (expression_ap[fpushdata] >> *( "," >> expression_ap[fpushdata])) )
 			>> (comment_p(";") | eol_p);
 

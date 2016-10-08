@@ -1,5 +1,6 @@
 #include <vector>
 #include <unordered_map>
+#include <cstring>
 
 #include "emulator.h"
 
@@ -80,7 +81,7 @@ template <> struct flags<false>
 		m.sr = (m.sr & 0x7d) | (Reg<REG>(m) & 0x80) | (!Reg<REG>(m) << 1);
 	}
 
-   template inline static void set_SZ(Machine::Impl &m, int res) {
+   inline static void set_SZ(Machine::Impl &m, int res) {
 		m.sr = (m.sr & 0x7d) | (res & 0x80) | (!res << 1);
 	}
 
@@ -88,7 +89,7 @@ template <> struct flags<false>
 		m.sr = (m.sr & 0x7c) | (res & 0x80) | (!(res & 0xff) << 1) | ((res>>8)&1);
 	}
 
-	template inline static void set_SZCV(Machine::Impl &m, int res, int arg) {
+	inline static void set_SZCV(Machine::Impl &m, int res, int arg) {
 		m.sr = (m.sr & 0x3c) | (res & 0x80) | (!res << 1) | ((res>>8)&1) | ((~(m.a ^ arg) & (m.a ^ res) & 0x80)>>1);
 	}
 };
