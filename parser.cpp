@@ -1,5 +1,8 @@
 
 #include <boost/spirit.hpp>
+//#include <boost/spirit/dynamic/if.hpp>
+#include <boost/spirit/iterator/position_iterator.hpp>
+
 #include <unordered_map>
 #include <vector>
 #include <functional>
@@ -16,6 +19,8 @@ struct AsmState
 	uint32_t orgStart = 0x1000;
 	uint32_t org;
 };
+
+typedef position_iterator<char const*> iterator_t;
 
 static auto symbol_p = []() -> auto { return ch_p('*') | ch_p('$') | lexeme_d[ (ch_p('_') | alpha_p) >> *(ch_p('_') | alnum_p) ]; } ;
 
@@ -43,7 +48,7 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 		using FnN = std::function<void(int)>;
 		using FnC = std::function<void(char)>;
 		using FnD = std::function<void(double)>;
-		using Fn = std::function<void(const char *, const char *)>;
+		using Fn = std::function<void(iterator_t, iterator_t)>; //const char *, const char *)>;
 
 		std::unordered_map<std::string, std::function<double(double, double)>> ops = {
 			{ "+", [](double a, double b) -> double { return a + b; } },
@@ -203,7 +208,7 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 
 		bool foundSol;
 
-		Fn fsol = [=](const char *a, const char *b) {
+		Fn fsol = [=](auto a, auto b) {
 			//printf("%c %02x\n", *a, a[-1]);
 			foundSol = (a[-1] == 0xa);
 		};
@@ -213,7 +218,7 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 		};
 
 		Fn SetMe(std::string &target) {
-			return [&](const char *a, const char *b) {
+			return [&](iterator_t a, iterator_t b) {
 				target = std::string(a, b);
 			};
 		};
@@ -291,7 +296,19 @@ bool parse(const std::string &code,
 	int ucount = -1;
 	while(true) {
 		state.org = state.orgStart;
-		auto result = boost::spirit::parse((std::string("\n") + code + "\n").c_str(), g, blank_p);
+		auto code2 = (std::string("\n") + code + "\n");
+
+
+		iterator_t begin(code.c_str(), code.c_str()+code.length());
+		iterator_t end;
+
+		file_position fp;
+		fp.file = "dummy.asm";
+		begin.set_position(fp);
+
+		auto result = boost::spirit::parse(begin, end, g, blank_p);
+		fp = result.stop.get_position();
+		printf("Parse stop in %s:%d(%d)\n", fp.file.c_str(), fp.line, fp.column);
 		if(!result.full)
 			return false;
 

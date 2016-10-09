@@ -135,7 +135,8 @@ int assemble(int pc, Word *output, const std::string &code) {
 	for(const auto &line :  utils::split(code, "\n")) {
 		int rc= assembleLine(line, output, pc);
 		if(rc < 0)
-			throw run_exception("Parse error: " + line);
+			return -1;
+		//throw run_exception("Parse error: " + line);
 		//printf("asm to %p %x = %d\n", output, pc, rc);
 		pc += rc;
 		output += rc;
