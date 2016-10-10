@@ -5,7 +5,6 @@
 
 namespace sixfive {
 
-
 const static std::string modeNames[] = { 
 	"ILLEGAL",
 	"NONE",
@@ -15,7 +14,7 @@ const static std::string modeNames[] = {
 
 	"#IMM",
 	"REL",
-// Zero page
+
 	"$ZP",
 	"$ZP,X",
 	"$ZP,Y",
@@ -32,7 +31,7 @@ const static std::string modeNames[] = {
 
 
 struct Arg {
-	Arg(AdressingMode am = Illegal, int val = -1) : mode(am), val(val) {}
+	Arg(AdressingMode am = BAD, int val = -1) : mode(am), val(val) {}
 	AdressingMode mode;
 	int val;
 };
@@ -40,7 +39,7 @@ struct Arg {
 Arg parse(const std::string &a) {
 	const static std::regex arg_regex(R"(^\(?(#?)(\$?)(\w*)(,[xy])?(\)?)(,y)?)");
 	std::smatch m;
-	AdressingMode mode = Illegal;
+	AdressingMode mode = BAD;
 	int v = -1;
 	if(std::regex_match(a, m, arg_regex)) {
 		if(m[2] == "$")
@@ -50,24 +49,24 @@ Arg parse(const std::string &a) {
 
 		if(m[5] == ")") {
 			if(m[4] == ",x" && v < 256)
-				mode = Ind_x;
+				mode = INDX;
 			else if(m[6] == ",y" && v < 256)
-				mode = Ind_y;
+				mode = INDY;
 			else if(m[6] == "" && m[4] == "")
-				mode = Ind;
+				mode = IND;
 			else
-				mode = Illegal;	
+				mode = BAD;	
 		} else {
 			if(m[3] == "a")
-				mode = Acc;
+				mode = ACC;
 			else if(m[1] == "#")
-				mode = Imm;
+				mode = IMM;
 			else if(m[4] == ",y")
-				mode = v < 256 ? Zp_y : Abs_y;
+				mode = v < 256 ? ZPY : ABSY;
 			else if(m[4] == ",x")
-				mode = v < 256 ? Zp_x : Abs_x;
+				mode = v < 256 ? ZPX : ABSX;
 			else
-				mode = v < 256 ? Zp : Abs;
+				mode = v < 256 ? ZP : ABS;
 		}
 	}
 
@@ -78,45 +77,44 @@ int assembleLine(const std::string &line, uint8_t *output, int pc) {
 	std::regex line_regex(R"(^(\w+:?)?\s*((\w+)\s*(\S+)?)?\s*(;.*)?$)");
 	std::smatch matches;
 	if(line == "") return 0;
-	//printf("LINE '%s'\n", line.c_str());
 	if(std::regex_match(line, matches, line_regex)) {
 		Arg a;
 		if(matches[4] != "") {
 			a = parse(matches[4]);
 			printf("ARG is %s %x\n", modeNames[a.mode].c_str(), a.val);
 		} else {
-			a.mode = None;
+			a.mode = NONE;
 		}
 
 		for(auto &ins : instructionTable) {
 			if(ins.name == matches[3]) {
 				for(auto &op : ins.opcodes) {
-					if(op.mode == Abs_y && a.mode == Zp_y) {
-						a.mode = Abs_y;
+					if(op.mode == ABSY && a.mode == ZPY) {
+						a.mode = ABSY;
 					}
 
-					if(op.mode == Abs_x && a.mode == Zp_x) {
-						a.mode = Abs_x;
+					if(op.mode == ABSX && a.mode == ZPX) {
+						a.mode = ABSX;
 					}
 
-					if(op.mode == Abs && a.mode == Zp) {
+					if(op.mode == ABS && a.mode == ZP) {
 						// An opcode that requires Abs. We assume Zp versions are always
 						// defined before Abs versions.
-						a.mode = Abs;
+						a.mode = ABS;
 
 					} else
-					if(op.mode == Rel && (a.mode == Abs || a.mode == Zp)) {
+					if(op.mode == REL && (a.mode == ABS || a.mode == ZP)) {
 						printf("ABS %04x at PC %04x = REL %d", a.val, pc, a.val - pc - 2);
 						a.val = (int)a.val - pc - 2;
-						a.mode = Rel;
+						a.mode = REL;
 					}
 					if(op.mode == a.mode) {
 						//printf("Matched %02x\n", op.code);
 						auto saved = output;
 						*output++ = op.code;
-						if(a.mode > Size2)
+						if(a.mode > SIZE2)
 							*output++ = a.val & 0xff;
-						if(a.mode > Size3)
+						if(a.mode > SIZE3)
 							*output++ = a.val >> 8;
 						return output - saved;
 					};
@@ -136,8 +134,6 @@ int assemble(int pc, Word *output, const std::string &code) {
 		int rc= assembleLine(line, output, pc);
 		if(rc < 0)
 			return -1;
-		//throw run_exception("Parse error: " + line);
-		//printf("asm to %p %x = %d\n", output, pc, rc);
 		pc += rc;
 		output += rc;
 		total += rc;

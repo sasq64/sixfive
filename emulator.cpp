@@ -399,249 +399,247 @@ template<> void Rol<ACC>(Machine::Impl &m) {
 	flags<>::set_SZC(m, rc);
 	m.a = rc;
 }
-
 std::vector<Instruction> instructionTable  {
 
-	{"nop", {{ 0xea, 2, None, [](Machine::Impl &m) {} }} },
+	{"nop", {{ 0xea, 2, NONE, [](Machine::Impl &m) {} }} },
 
     {"lda", {
-		{ 0xa9, 2, Imm, Load<A, IMM>},
-		{ 0xa5, 2, Zp, Load<A, ZP>},
-		{ 0xb5, 4, Zp_x, Load<A, ZPX>},
-		{ 0xad, 4, Abs, Load<A, ABS>},
-		{ 0xbd, 4, Abs_x, Load<A, ABSX>},
-		{ 0xb9, 4, Abs_y, Load<A, ABSY>},
-		{ 0xa1, 6, Ind_x, Load<A, INDX>},
-		{ 0xb1, 5, Ind_y, Load<A, INDY>},
+		{ 0xa9, 2, IMM, Load<A, IMM>},
+		{ 0xa5, 2, ZP, Load<A, ZP>},
+		{ 0xb5, 4, ZPX, Load<A, ZPX>},
+		{ 0xad, 4, ABS, Load<A, ABS>},
+		{ 0xbd, 4, ABSX, Load<A, ABSX>},
+		{ 0xb9, 4, ABSY, Load<A, ABSY>},
+		{ 0xa1, 6, INDX, Load<A, INDX>},
+		{ 0xb1, 5, INDY, Load<A, INDY>},
 	} },
 
     {"ldx", {
-		{ 0xa2, 2, Imm, Load<X, IMM>},
-		{ 0xa6, 3, Zp, Load<X, ZP>},
-		{ 0xb6, 4, Zp_y, Load<X, ZPY>},
-		{ 0xae, 4, Abs, Load<X, ABS>},
-		{ 0xbe, 4, Abs_y, Load<X, ABSY>},
+		{ 0xa2, 2, IMM, Load<X, IMM>},
+		{ 0xa6, 3, ZP, Load<X, ZP>},
+		{ 0xb6, 4, ZPY, Load<X, ZPY>},
+		{ 0xae, 4, ABS, Load<X, ABS>},
+		{ 0xbe, 4, ABSY, Load<X, ABSY>},
 	} },
 
     {"ldy", {
-		{ 0xa0, 2, Imm, Load<Y, IMM>},
-		{ 0xa4, 3, Zp, Load<Y, ZP>},
-		{ 0xb4, 4, Zp_x, Load<Y, ZPX>},
-		{ 0xac, 4, Abs, Load<Y, ABS>},
-		{ 0xbc, 4, Abs_x, Load<Y, ABSX>},
+		{ 0xa0, 2, IMM, Load<Y, IMM>},
+		{ 0xa4, 3, ZP, Load<Y, ZP>},
+		{ 0xb4, 4, ZPX, Load<Y, ZPX>},
+		{ 0xac, 4, ABS, Load<Y, ABS>},
+		{ 0xbc, 4, ABSX, Load<Y, ABSX>},
 	} },
 
     {"sta", {
-		{ 0x85, 3, Zp, Store<A, ZP>},
-		{ 0x95, 4, Zp_x, Store<A, ZPX>},
-		{ 0x8d, 4, Abs, Store<A, ABS>},
-		{ 0x9d, 4, Abs_x, Store<A, ABSX>},
-		{ 0x99, 4, Abs_y, Store<A, ABSY>},
-		{ 0x81, 6, Ind_x, Store<A, INDX>},
-		{ 0x91, 5, Ind_y, Store<A, INDY>},
+		{ 0x85, 3, ZP, Store<A, ZP>},
+		{ 0x95, 4, ZPX, Store<A, ZPX>},
+		{ 0x8d, 4, ABS, Store<A, ABS>},
+		{ 0x9d, 4, ABSX, Store<A, ABSX>},
+		{ 0x99, 4, ABSY, Store<A, ABSY>},
+		{ 0x81, 6, INDX, Store<A, INDX>},
+		{ 0x91, 5, INDY, Store<A, INDY>},
 	} },
 
     {"stx", {
-		{ 0x86, 3, Zp, Store<X, ZP>},
-		{ 0x96, 4, Zp_y, Store<X, ZPY>},
-		{ 0x8e, 4, Abs, Store<X, ABS>},
+		{ 0x86, 3, ZP, Store<X, ZP>},
+		{ 0x96, 4, ZPY, Store<X, ZPY>},
+		{ 0x8e, 4, ABS, Store<X, ABS>},
 	} },
 
     {"sty", {
-		{ 0x84, 3, Zp, Store<Y, ZP>},
-		{ 0x94, 4, Zp_x, Store<Y, ZPX>},
-		{ 0x8c, 4, Abs, Store<Y, ABS>},
+		{ 0x84, 3, ZP, Store<Y, ZP>},
+		{ 0x94, 4, ZPX, Store<Y, ZPX>},
+		{ 0x8c, 4, ABS, Store<Y, ABS>},
 	} },
 
     {"dec", {
-		{ 0xc6, 5, Zp, Inc<ZP, -1>},
-		{ 0xd6, 6, Zp_x, Inc<ZPX, -1>},
-		{ 0xce, 6, Abs, Inc<ABS, -1>},
-		{ 0xde, 7, Abs_x, Inc<ABSX, -1>},
+		{ 0xc6, 5, ZP, Inc<ZP, -1>},
+		{ 0xd6, 6, ZPX, Inc<ZPX, -1>},
+		{ 0xce, 6, ABS, Inc<ABS, -1>},
+		{ 0xde, 7, ABSX, Inc<ABSX, -1>},
 	} },
 
     {"inc", {
-		{ 0xe6, 5, Zp, Inc<ZP, 1>},
-		{ 0xf6, 6, Zp_x, Inc<ZPX, 1>},
-		{ 0xee, 6, Abs, Inc<ABS, 1>},
-		{ 0xfe, 7, Abs_x, Inc<ABSX, 1>},
+		{ 0xe6, 5, ZP, Inc<ZP, 1>},
+		{ 0xf6, 6, ZPX, Inc<ZPX, 1>},
+		{ 0xee, 6, ABS, Inc<ABS, 1>},
+		{ 0xfe, 7, ABSX, Inc<ABSX, 1>},
 	} },
 
-	{ "tax", { { 0xaa, 2, None, [](Machine::Impl& m) { m.x = m.a ; flags<>::set_SZ<X>(m); } } } },
-	{ "txa", { { 0x8a, 2, None, [](Machine::Impl& m) { m.a = m.x ; flags<>::set_SZ<A>(m); } } } },
-	{ "dex", { { 0xca, 2, None, [](Machine::Impl& m) { m.x-- ; flags<>::set_SZ<X>(m); } } } },
-	{ "inx", { { 0xe8, 2, None, [](Machine::Impl& m) { m.x++ ; flags<>::set_SZ<X>(m); } } } },
-	{ "tay", { { 0xa8, 2, None, [](Machine::Impl& m) { m.y = m.a ; flags<>::set_SZ<Y>(m); } } } },
-	{ "tya", { { 0x98, 2, None, [](Machine::Impl& m) { m.a = m.y ; flags<>::set_SZ<A>(m); } } } },
-	{ "dey", { { 0x88, 2, None, [](Machine::Impl& m) { m.y-- ; flags<>::set_SZ<Y>(m); } } } },
-	{ "iny", { { 0xc8, 2, None, [](Machine::Impl& m) { m.y++ ; flags<>::set_SZ<Y>(m); } } } },
+	{ "tax", { { 0xaa, 2, NONE, [](Machine::Impl& m) { m.x = m.a ; flags<>::set_SZ<X>(m); } } } },
+	{ "txa", { { 0x8a, 2, NONE, [](Machine::Impl& m) { m.a = m.x ; flags<>::set_SZ<A>(m); } } } },
+	{ "dex", { { 0xca, 2, NONE, [](Machine::Impl& m) { m.x-- ; flags<>::set_SZ<X>(m); } } } },
+	{ "inx", { { 0xe8, 2, NONE, [](Machine::Impl& m) { m.x++ ; flags<>::set_SZ<X>(m); } } } },
+	{ "tay", { { 0xa8, 2, NONE, [](Machine::Impl& m) { m.y = m.a ; flags<>::set_SZ<Y>(m); } } } },
+	{ "tya", { { 0x98, 2, NONE, [](Machine::Impl& m) { m.a = m.y ; flags<>::set_SZ<A>(m); } } } },
+	{ "dey", { { 0x88, 2, NONE, [](Machine::Impl& m) { m.y-- ; flags<>::set_SZ<Y>(m); } } } },
+	{ "iny", { { 0xc8, 2, NONE, [](Machine::Impl& m) { m.y++ ; flags<>::set_SZ<Y>(m); } } } },
 
-	{ "txs", { { 0x9a, 2, None, [](Machine::Impl& m) { m.sp = m.x; } } } },
-	{ "tsx", { { 0xba, 2, None, [](Machine::Impl& m) { m.sp = m.x; } } } },
+	{ "txs", { { 0x9a, 2, NONE, [](Machine::Impl& m) { m.sp = m.x; } } } },
+	{ "tsx", { { 0xba, 2, NONE, [](Machine::Impl& m) { m.sp = m.x; } } } },
 
-	{ "pha", { { 0x48, 3, None, [](Machine::Impl& m) {
+	{ "pha", { { 0x48, 3, NONE, [](Machine::Impl& m) {
 		m.stack[m.sp--] = m.a;
 	} } } },
 
-	{ "pla", { { 0x68, 4, None, [](Machine::Impl& m) {
+	{ "pla", { { 0x68, 4, NONE, [](Machine::Impl& m) {
 		m.a = m.stack[++m.sp];
 	} } } },
 
-	{ "php", { { 0x08, 3, None, [](Machine::Impl& m) {
+	{ "php", { { 0x08, 3, NONE, [](Machine::Impl& m) {
 		m.stack[m.sp--] = flags<>::get(m);
 	} } } },
 
-	{ "plp", { { 0x28, 4, None, [](Machine::Impl& m) {
+	{ "plp", { { 0x28, 4, NONE, [](Machine::Impl& m) {
 		flags<>::set(m, m.stack[++m.sp]);
 	} } } },
 
-
-	{ "bcc", { { 0x90, 2, Rel, Branch<CC> }, } },
-	{ "bcs", { { 0xb0, 2, Rel, Branch<CS> }, } },
-	{ "bne", { { 0xd0, 2, Rel, Branch<NE> }, } },
-	{ "beq", { { 0xf0, 2, Rel, Branch<EQ> }, } },
-	{ "bpl", { { 0x10, 2, Rel, Branch<PL> }, } },
-	{ "bmi", { { 0x30, 2, Rel, Branch<MI> }, } },
-	{ "bvc", { { 0x50, 2, Rel, Branch<VC> }, } },
-	{ "bvs", { { 0x70, 2, Rel, Branch<VS> }, } },
+	{ "bcc", { { 0x90, 2, REL, Branch<CC> }, } },
+	{ "bcs", { { 0xb0, 2, REL, Branch<CS> }, } },
+	{ "bne", { { 0xd0, 2, REL, Branch<NE> }, } },
+	{ "beq", { { 0xf0, 2, REL, Branch<EQ> }, } },
+	{ "bpl", { { 0x10, 2, REL, Branch<PL> }, } },
+	{ "bmi", { { 0x30, 2, REL, Branch<MI> }, } },
+	{ "bvc", { { 0x50, 2, REL, Branch<VC> }, } },
+	{ "bvs", { { 0x70, 2, REL, Branch<VS> }, } },
 
 	{ "adc", {
-		{ 0x69, 2, Imm, Adc<IMM>},
-		{ 0x65, 3, Zp, Adc<ZP>},
-		{ 0x75, 4, Zp_x, Adc<ZPX>},
-		{ 0x6d, 4, Abs, Adc<ABS>},
-		{ 0x7d, 4, Abs_x, Adc<ABSX>},
-		{ 0x79, 4, Abs_y, Adc<ABSY>},
-		{ 0x61, 6, Ind_x, Adc<INDX>},
-		{ 0x71, 5, Ind_y, Adc<INDY>},
+		{ 0x69, 2, IMM, Adc<IMM>},
+		{ 0x65, 3, ZP, Adc<ZP>},
+		{ 0x75, 4, ZPX, Adc<ZPX>},
+		{ 0x6d, 4, ABS, Adc<ABS>},
+		{ 0x7d, 4, ABSX, Adc<ABSX>},
+		{ 0x79, 4, ABSY, Adc<ABSY>},
+		{ 0x61, 6, INDX, Adc<INDX>},
+		{ 0x71, 5, INDY, Adc<INDY>},
 	} },
 
 	{ "sbc", {
-		{ 0xe9, 2, Imm, Sbc<IMM>},
-		{ 0xe5, 3, Zp, Sbc<ZP>},
-		{ 0xf5, 4, Zp_x, Sbc<ZPX>},
-		{ 0xed, 4, Abs, Sbc<ABS>},
-		{ 0xfd, 4, Abs_x, Sbc<ABSX>},
-		{ 0xf9, 4, Abs_y, Sbc<ABSY>},
-		{ 0xe1, 6, Ind_x, Sbc<INDX>},
-		{ 0xf1, 5, Ind_y, Sbc<INDY>},
+		{ 0xe9, 2, IMM, Sbc<IMM>},
+		{ 0xe5, 3, ZP, Sbc<ZP>},
+		{ 0xf5, 4, ZPX, Sbc<ZPX>},
+		{ 0xed, 4, ABS, Sbc<ABS>},
+		{ 0xfd, 4, ABSX, Sbc<ABSX>},
+		{ 0xf9, 4, ABSY, Sbc<ABSY>},
+		{ 0xe1, 6, INDX, Sbc<INDX>},
+		{ 0xf1, 5, INDY, Sbc<INDY>},
 	} },
 
 	{ "cmp", {
-		{ 0xc9, 2, Imm, Cmp<A, IMM>},
-		{ 0xc5, 3, Zp, Cmp<A, ZP>},
-		{ 0xd5, 4, Zp_x, Cmp<A, ZPX>},
-		{ 0xcd, 4, Abs, Cmp<A, ABS>},
-		{ 0xdd, 4, Abs_x, Cmp<A, ABSX>},
-		{ 0xd9, 4, Abs_y, Cmp<A, ABSY>},
-		{ 0xc1, 6, Ind_x, Cmp<A, INDX>},
-		{ 0xd1, 5, Ind_y, Cmp<A, INDY>},
+		{ 0xc9, 2, IMM, Cmp<A, IMM>},
+		{ 0xc5, 3, ZP, Cmp<A, ZP>},
+		{ 0xd5, 4, ZPX, Cmp<A, ZPX>},
+		{ 0xcd, 4, ABS, Cmp<A, ABS>},
+		{ 0xdd, 4, ABSX, Cmp<A, ABSX>},
+		{ 0xd9, 4, ABSY, Cmp<A, ABSY>},
+		{ 0xc1, 6, INDX, Cmp<A, INDX>},
+		{ 0xd1, 5, INDY, Cmp<A, INDY>},
 	} },
 
 	{ "cpx", {
-		{ 0xe0, 2, Imm, Cmp<X, IMM>},
-		{ 0xe4, 3, Zp, Cmp<X, ZP>},
-		{ 0xec, 4, Abs, Cmp<X, ABS>},
+		{ 0xe0, 2, IMM, Cmp<X, IMM>},
+		{ 0xe4, 3, ZP, Cmp<X, ZP>},
+		{ 0xec, 4, ABS, Cmp<X, ABS>},
 	} },
 
 	{ "cpy", {
-		{ 0xc0, 2, Imm, Cmp<Y, IMM>},
-		{ 0xc4, 3, Zp, Cmp<Y, ZP>},
-		{ 0xcc, 4, Abs, Cmp<Y, ABS>},
+		{ 0xc0, 2, IMM, Cmp<Y, IMM>},
+		{ 0xc4, 3, ZP, Cmp<Y, ZP>},
+		{ 0xcc, 4, ABS, Cmp<Y, ABS>},
 	} },
 
 	{ "and", {
-		{ 0x29, 2, Imm, And<IMM>},
-		{ 0x25, 3, Zp, And<ZP>},
-		{ 0x35, 4, Zp_x, And<ZPX>},
-		{ 0x2d, 4, Abs, And<ABS>},
-		{ 0x3d, 4, Abs_x, And<ABSX>},
-		{ 0x39, 4, Abs_y, And<ABSY>},
-		{ 0x21, 6, Ind_x, And<INDX>},
-		{ 0x31, 5, Ind_y, And<INDY>},
+		{ 0x29, 2, IMM, And<IMM>},
+		{ 0x25, 3, ZP, And<ZP>},
+		{ 0x35, 4, ZPX, And<ZPX>},
+		{ 0x2d, 4, ABS, And<ABS>},
+		{ 0x3d, 4, ABSX, And<ABSX>},
+		{ 0x39, 4, ABSY, And<ABSY>},
+		{ 0x21, 6, INDX, And<INDX>},
+		{ 0x31, 5, INDY, And<INDY>},
 	} },
 
 	{ "eor", {
-		{ 0x49, 2, Imm, Eor<IMM>},
-		{ 0x45, 3, Zp, Eor<ZP>},
-		{ 0x55, 4, Zp_x, Eor<ZPX>},
-		{ 0x4d, 4, Abs, Eor<ABS>},
-		{ 0x5d, 4, Abs_x, Eor<ABSX>},
-		{ 0x59, 4, Abs_y, Eor<ABSY>},
-		{ 0x41, 6, Ind_x, Eor<INDX>},
-		{ 0x51, 5, Ind_y, Eor<INDY>},
+		{ 0x49, 2, IMM, Eor<IMM>},
+		{ 0x45, 3, ZP, Eor<ZP>},
+		{ 0x55, 4, ZPX, Eor<ZPX>},
+		{ 0x4d, 4, ABS, Eor<ABS>},
+		{ 0x5d, 4, ABSX, Eor<ABSX>},
+		{ 0x59, 4, ABSY, Eor<ABSY>},
+		{ 0x41, 6, INDX, Eor<INDX>},
+		{ 0x51, 5, INDY, Eor<INDY>},
 	} },
 
 	{ "ora", {
-		{ 0x09, 2, Imm, Ora<IMM>},
-		{ 0x05, 3, Zp, Ora<ZP>},
-		{ 0x15, 4, Zp_x, Ora<ZPX>},
-		{ 0x0d, 4, Abs, Ora<ABS>},
-		{ 0x1d, 4, Abs_x, Ora<ABSX>},
-		{ 0x19, 4, Abs_y, Ora<ABSY>},
-		{ 0x01, 6, Ind_x, Ora<INDX>},
-		{ 0x11, 5, Ind_y, Ora<INDY>},
+		{ 0x09, 2, IMM, Ora<IMM>},
+		{ 0x05, 3, ZP, Ora<ZP>},
+		{ 0x15, 4, ZPX, Ora<ZPX>},
+		{ 0x0d, 4, ABS, Ora<ABS>},
+		{ 0x1d, 4, ABSX, Ora<ABSX>},
+		{ 0x19, 4, ABSY, Ora<ABSY>},
+		{ 0x01, 6, INDX, Ora<INDX>},
+		{ 0x11, 5, INDY, Ora<INDY>},
 	} },
 
-	{ "sec", { { 0x38, 2, None, Set<CARRY, true> } } },
-	{ "clc", { { 0x18, 2, None, Set<CARRY, false> } } },
-	{ "sei", { { 0x58, 2, None, Set<IRQ, true> } } },
-	{ "cli", { { 0x78, 2, None, Set<IRQ, false> } } },
-	{ "sed", { { 0xf8, 2, None, Set<DECIMAL, true> } } },
-	{ "cld", { { 0xd8, 2, None, Set<DECIMAL, false> } } },
-	{ "clv", { { 0xb8, 2, None, Set<OVER, false> } } },
+	{ "sec", { { 0x38, 2, NONE, Set<CARRY, true> } } },
+	{ "clc", { { 0x18, 2, NONE, Set<CARRY, false> } } },
+	{ "sei", { { 0x58, 2, NONE, Set<IRQ, true> } } },
+	{ "cli", { { 0x78, 2, NONE, Set<IRQ, false> } } },
+	{ "sed", { { 0xf8, 2, NONE, Set<DECIMAL, true> } } },
+	{ "cld", { { 0xd8, 2, NONE, Set<DECIMAL, false> } } },
+	{ "clv", { { 0xb8, 2, NONE, Set<OVER, false> } } },
 
 	{ "lsr", { 
-		{ 0x4a, 2, None, Lsr<ACC>},
-		{ 0x4a, 2, Acc, Lsr<ACC>},
-		{ 0x46, 5, Zp, Lsr<ZP>},
-		{ 0x56, 6, Zp_x, Lsr<ZPX>},
-		{ 0x4e, 6, Abs, Lsr<ABS>},
-		{ 0x5e, 7, Abs_x, Lsr<ABSX>},
+		{ 0x4a, 2, NONE, Lsr<ACC>},
+		{ 0x4a, 2, ACC, Lsr<ACC>},
+		{ 0x46, 5, ZP, Lsr<ZP>},
+		{ 0x56, 6, ZPX, Lsr<ZPX>},
+		{ 0x4e, 6, ABS, Lsr<ABS>},
+		{ 0x5e, 7, ABSX, Lsr<ABSX>},
 	} },
 
 	{ "asl", { 
-		{ 0x0a, 2, None, Asl<ACC>},
-		{ 0x0a, 2, Acc, Asl<ACC>},
-		{ 0x06, 5, Zp, Asl<ZP>},
-		{ 0x16, 6, Zp_x, Asl<ZPX>},
-		{ 0x0e, 6, Abs, Asl<ABS>},
-		{ 0x1e, 7, Abs_x, Asl<ABSX>},
+		{ 0x0a, 2, NONE, Asl<ACC>},
+		{ 0x0a, 2, ACC, Asl<ACC>},
+		{ 0x06, 5, ZP, Asl<ZP>},
+		{ 0x16, 6, ZPX, Asl<ZPX>},
+		{ 0x0e, 6, ABS, Asl<ABS>},
+		{ 0x1e, 7, ABSX, Asl<ABSX>},
 	} },
 
 	{ "ror", { 
-		{ 0x6a, 2, None, Ror<ACC>},
-		{ 0x6a, 2, Acc, Ror<ACC>},
-		{ 0x66, 5, Zp, Ror<ZP>},
-		{ 0x76, 6, Zp_x, Ror<ZPX>},
-		{ 0x6e, 6, Abs, Ror<ABS>},
-		{ 0x7e, 7, Abs_x, Ror<ABSX>},
+		{ 0x6a, 2, NONE, Ror<ACC>},
+		{ 0x6a, 2, ACC, Ror<ACC>},
+		{ 0x66, 5, ZP, Ror<ZP>},
+		{ 0x76, 6, ZPX, Ror<ZPX>},
+		{ 0x6e, 6, ABS, Ror<ABS>},
+		{ 0x7e, 7, ABSX, Ror<ABSX>},
 	} },
 
 	{ "rol", { 
-		{ 0x2a, 2, None, Rol<ACC>},
-		{ 0x2a, 2, Acc, Rol<ACC>},
-		{ 0x26, 5, Zp, Rol<ZP>},
-		{ 0x36, 6, Zp_x, Rol<ZPX>},
-		{ 0x2e, 6, Abs, Rol<ABS>},
-		{ 0x3e, 7, Abs_x, Rol<ABSX>},
+		{ 0x2a, 2, NONE, Rol<ACC>},
+		{ 0x2a, 2, ACC, Rol<ACC>},
+		{ 0x26, 5, ZP, Rol<ZP>},
+		{ 0x36, 6, ZPX, Rol<ZPX>},
+		{ 0x2e, 6, ABS, Rol<ABS>},
+		{ 0x3e, 7, ABSX, Rol<ABSX>},
 	} },
 
 	{ "rts", {
-		{ 0x60, 2, None, [](Machine::Impl &m) {  
+		{ 0x60, 2, NONE, [](Machine::Impl &m) {  
 			m.pc = (m.stack[m.sp+2] | (m.stack[m.sp+1]<<8))+1;
 			m.sp += 2;
 		}}
 	} },
 
 	{ "jmp", {
-		{ 0x4c, 3, Abs, [](Machine::Impl &m) {
+		{ 0x4c, 3, ABS, [](Machine::Impl &m) {
 			m.pc = ReadPCW(m);
 	   }}
    	} },
 
 	{ "jsr", {
-		{ 0x20, 3, Abs, [](Machine::Impl &m) {
+		{ 0x20, 3, ABS, [](Machine::Impl &m) {
 			m.stack[m.sp-- & 0xff] = (m.pc+1) & 0xff;
 			m.stack[m.sp-- & 0xff] = (m.pc+1) >> 8; 
 			m.pc = ReadPCW(m);
@@ -708,10 +706,12 @@ void Machine::writeRam(uint16_t org, const uint8_t *data, int size) {
 	memcpy(&impl->mem[org], data, size);
 }
 
-void Machine::setPC(const int16_t &pc) { impl->pc = pc; }
+void Machine::setPC(const int16_t &pc) {
+	impl->pc = pc;
+}
+
 void Machine::run(uint32_t runc) {
 
-	//Machine &m = *this;
 	auto toCycles = impl->cycles + runc;
 	while(impl->cycles < toCycles) {
 

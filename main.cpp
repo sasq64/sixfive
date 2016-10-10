@@ -7,6 +7,16 @@
 #include <unordered_map>
 #include <tuple>
 
+class run_exception : public std::exception
+{
+public:
+	run_exception(const std::string &m = "RUN Exception") : msg(m) {}
+	virtual const char *what() const throw() { return msg.c_str(); }
+
+private:
+	std::string msg;
+};
+
 bool parse(const std::string &code, 
 		std::function<int(uint16_t org, const std::string &op, const std::string &arg)> encode);
 

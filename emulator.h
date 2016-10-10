@@ -31,31 +31,7 @@ private:
 	std::unique_ptr<Impl> impl;
 };
 
-enum {BAD, NONE, ACC, SIZE2, IMM, REL, ZP, ZPX, ZPY, INDX, INDY, SIZE3, IND, ABS, ABSX, ABSY };
-enum AdressingMode
-{
-	Illegal,
-	None,
-	Acc,
-
-	Size2,
-
-	Imm,
-	Rel,
-
-	Zp,
-	Zp_x,
-	Zp_y,
-	Ind_x,
-	Ind_y,
-
-	Size3,
-
-	Ind,
-	Abs,
-	Abs_x,
-	Abs_y,
-};
+enum AdressingMode {BAD, NONE, ACC, SIZE2, IMM, REL, ZP, ZPX, ZPY, INDX, INDY, SIZE3, IND, ABS, ABSX, ABSY };
 
 using OpFunc = void(*)(Machine::Impl&);
 
@@ -64,7 +40,7 @@ struct Opcode {
 	Opcode(Word code, int cycles, AdressingMode mode, OpFunc op) : code(code), cycles(cycles), mode(mode), op(op) {}
 	Word code;
 	int cycles;
-	const char *name;
+//	const char *name;
 	AdressingMode mode;
 	OpFunc op;
 };
@@ -73,17 +49,6 @@ struct Instruction {
 	Instruction(const std::string &name, std::vector<Opcode> ov) : name(name), opcodes(ov) {}
 	const std::string name;
 	std::vector<Opcode> opcodes;
-};
-
-
-class run_exception : public std::exception
-{
-public:
-	run_exception(const std::string &m = "RUN Exception") : msg(m) {}
-	virtual const char *what() const throw() { return msg.c_str(); }
-
-private:
-	std::string msg;
 };
 
 

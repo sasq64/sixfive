@@ -9,6 +9,7 @@
 #include <stack>
 #include <string>
 #include <cstring>
+#include <boost/spirit/error_handling/exceptions.hpp>
 
 using namespace boost::spirit;
 
@@ -159,15 +160,13 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 			opcodeArg = arg;
 		};
 
-		Fn fasmline = [=](auto, auto) -> bool {
+		Fn fasmline = [=](auto b, auto e) {
 			std::transform(opcodeName.begin(), opcodeName.end(), opcodeName.begin(), ::tolower);
 			int len = grammar.encode(state.org, opcodeName, opcodeArg);
-			if(len < 0) {
-				printf("OPCODE ERRORS %s\n", opcodeName.c_str());
-				return false;
-			} else
+			if(len < 0)
+				throw_(b, std::string("Error"));
+			else
 				state.org += len;
-			return true;
 		};
 
 		Fn fmetaline = [=](auto, auto) {
@@ -257,7 +256,6 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 
 		Rule expression_ap = s6_ap[fexpression];
 
-
 		Rule opcode_ap = lexeme_d[ as_lower_d[ alpha_p >> *('_' | alnum_p) ] ];
 		Rule reg_p = as_lower_d[ ch_p('x') | ch_p('y') ];
 
@@ -275,10 +273,12 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 
 		Rule metaline_ap = lexeme_d[ ch_p('@')  >> symbol_p() ][SetMe(symbolName)] >> lexeme_d[ *print_p ][SetMe(argExp)] >> (comment_p(";") | eol_p);
 
-		Rule dataline_ap = !label_ap[flabel] >> as_lower_d[ str_p("db") | str_p(".byte") ] >>
-		      ( confix_p('"', (*c_escape_ch_p)[fstrdata], '"') |
-			  (expression_ap[fpushdata] >> *( "," >> expression_ap[fpushdata])) )
-			>> (comment_p(";") | eol_p);
+		Rule dataline_ap = !label_ap[flabel] >>
+		                   as_lower_d[str_p("db") | str_p(".byte")] >>
+		                   (  confix_p('"', (*c_escape_ch_p)[fstrdata], '"') |
+		                      (expression_ap[fpushdata] >>
+		                      *("," >> expression_ap[fpushdata]))  ) >>
+		                   (comment_p(";") | eol_p);
 
 		Rule mainrule_ap = *(emptyline_ap[femptyline] | dataline_ap[fdataline] | asmline_ap[fasmline] | defline_ap[fdefline] | metaline_ap[fmetaline] );
 
@@ -298,7 +298,6 @@ bool parse(const std::string &code,
 		state.org = state.orgStart;
 		auto code2 = (std::string("\n") + code + "\n");
 
-
 		iterator_t begin(code.c_str(), code.c_str()+code.length());
 		iterator_t end;
 
@@ -306,11 +305,16 @@ bool parse(const std::string &code,
 		fp.file = "dummy.asm";
 		begin.set_position(fp);
 
-		auto result = boost::spirit::parse(begin, end, g, blank_p);
-		fp = result.stop.get_position();
-		printf("Parse stop in %s:%d(%d)\n", fp.file.c_str(), fp.line, fp.column);
-		if(!result.full)
+		try {
+			auto result = boost::spirit::parse(begin, end, g, blank_p);
+			fp = result.stop.get_position();
+			if(!result.full)
+				return false;
+		} catch(parser_error<std::string, iterator_t> e) {
+			auto pos = e.where.get_position();
+			printf("Parse error in %s %d (%d)\n", pos.file.c_str(), pos.line, pos.column);
 			return false;
+		}
 
 		if(state.undefined.size() > 0) {
 				for(const auto &ud : state.undefined)
