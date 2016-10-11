@@ -36,6 +36,8 @@ struct Arg {
 	int val;
 };
 
+
+
 Arg parse(const std::string &a) {
 	const static std::regex arg_regex(R"(^\(?(#?)(\$?)(\w*)(,[xy])?(\)?)(,y)?)");
 	std::smatch m;
@@ -86,9 +88,13 @@ int assembleLine(const std::string &line, Word *output, int pc) {
 			a.mode = NONE;
 		}
 
-		for(auto &ins : instructionTable) {
-			if(ins.name == matches[3]) {
-				for(auto &op : ins.opcodes) {
+		const auto &opCodes = Machine::GetOpcodes();
+
+		//for(auto &ins : instructionTable) {
+		for(auto & op : opCodes) {
+			//if(ins.name == matches[3]) {
+			if(matches[3] == op.name) {
+				//for(auto &op : ins.opcodes) {
 					if(op.mode == ABSY && a.mode == ZPY) {
 						a.mode = ABSY;
 					}
@@ -118,7 +124,7 @@ int assembleLine(const std::string &line, Word *output, int pc) {
 							*output++ = a.val >> 8;
 						return output - saved;
 					};
-				}
+			//	}
 			}
 		}
 	}

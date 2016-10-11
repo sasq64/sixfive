@@ -35,7 +35,7 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
-	Machine m;
+	Machine<> m;
 	m.init();
 
 	FILE *fp = fopen(argv[1], "rb");
@@ -78,7 +78,7 @@ int main(int argc, char **argv)
 				printf("%s must be %02x\n", what.c_str(), v);
 				reqs.push_back(std::make_pair(w,v));
 			}
-			m.set_break(org, [=](Machine &m) {
+			m.set_break(org, [=](Machine<> &m) {
 					
 					//printf("Break at %04x\n", m.getPC());
 					printf("Break\n");

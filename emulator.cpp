@@ -1,6 +1,7 @@
 #include <vector>
 #include <unordered_map>
 #include <cstring>
+#include <vector>
 
 #include "emulator.h"
 
@@ -11,8 +12,68 @@ namespace sixfive {
 constexpr bool AlignReads = true;
 constexpr bool StatusOpt = false;
 
+// Registers
+enum REGNAME { NOREG, A, X, Y, SP };
+// Adressing modes
 
-struct Machine::Impl {
+// Condition codes
+enum CONDCODE { EQ, NE, PL, MI, CC, CS, VC, VS };
+
+template <typename POLICY> struct Machine<POLICY>::Impl {
+
+	void init() {
+		sp = 0xff;
+		stack = &mem[0x100];
+		memset(&mem[0], 0, sizeof(mem));
+		cycles = 0;
+		for(const auto &i : instructionTable) {
+			for(const auto &o : i.opcodes) {
+				jumpTable[o.code].op = o.op;
+			}
+		}
+
+	}
+
+	void set_break(uint16_t pc, std::function<void(Machine &m)> f) {
+		breaks[pc] = f;
+	}
+	void writeRam(uint16_t org, const Word data) {
+		mem[org] = data;
+	}
+	void writeRam(uint16_t org, const Word *data, int size) {
+		memcpy(&mem[org], data, size * sizeof(Word));
+	}
+	void readRam(uint16_t org, Word *data, int size) {
+		memcpy(data, &mem[org], size * sizeof(Word));
+	}
+	Word readRam(uint16_t org) {
+		return mem[org];
+	}
+	uint8_t regA() { return a; }
+	uint8_t regX() { return x; }	
+	uint8_t regY() { return y; }	
+	uint8_t regSR() { return sr; }	
+
+	void setPC(const int16_t &p) {
+		pc = p;
+	}
+
+	uint32_t run(uint32_t runc) {
+
+		auto toCycles = cycles + runc;
+		uint32_t opcodes = 0;
+		while(cycles < toCycles) {
+
+			uint8_t code = ReadPC();
+			if(code == 0x60 && (uint8_t)sp == 0xff)
+				return opcodes;
+			auto &op = jumpTable[code];
+			op.op(*this);
+			cycles += op.cycles;
+			opcodes++;
+		}
+		return opcodes;
+	}
 
 	Word a;
 	Word x;
@@ -27,160 +88,134 @@ struct Machine::Impl {
 	Word mem[65536];
 	uint32_t cycles;
 	std::unordered_map<uint16_t, std::function<void(Machine &m)>> breaks;
+	Opcode<POLICY> jumpTable[256];
 
-};
+	static std::vector<Instruction<POLICY>> instructionTable;
 
-Machine::~Machine() = default;
-Machine::Machine(Machine &&) noexcept = default;
-Machine& Machine::operator=(Machine &&) noexcept = default;
 
-Machine::Machine() {
-	impl = std::make_unique<Impl>();
-	init();
+inline Word& ReadPC(Machine<POLICY>::Impl&m) { return m.mem[m.pc++]; }
+template <bool ALIGN = AlignReads> inline uint16_t ReadPCW(Machine<POLICY>::Impl &m) {
+	m.pc += 2;
+	if(AlignReads)
+		return m.mem[m.pc - 2] | (m.mem[m.pc-1]<<8);
+	else
+		return *(uint16_t*)&m.mem[m.pc - 2];
 }
+//template <> inline uint16_t ReadPCW<true>(Machine<POLICY>::Impl &m) {  m.pc += 2; return m.mem[m.pc - 2] | (m.mem[m.pc-1]<<8); }
+//template <> inline uint16_t ReadPCW<false>(Machine<POLICY>::Impl &m) { m.pc += 2; return *(uint16_t*)&m.mem[m.pc - 2]; }
 
-// Registers
-enum REGNAME { NOREG, A, X, Y, SP };
-// Adressing modes
-
-// Condition codes
-enum CONDCODE { EQ, NE, PL, MI, CC, CS, VC, VS };
-
-inline Word& ReadPC(Machine::Impl&m) { return m.mem[m.pc++]; }
-template <bool ALIGN = AlignReads> inline uint16_t ReadPCW(Machine::Impl &m);
-template <> inline uint16_t ReadPCW<true>(Machine::Impl &m) {  m.pc += 2; return m.mem[m.pc - 2] | (m.mem[m.pc-1]<<8); }
-template <> inline uint16_t ReadPCW<false>(Machine::Impl &m) { m.pc += 2; return *(uint16_t*)&m.mem[m.pc - 2]; }
-
-inline uint16_t Read16(Machine::Impl &m, uint16_t offs) {
+inline uint16_t Read16(Machine<POLICY>::Impl &m, uint16_t offs) {
 	return m.mem[offs] | (m.mem[offs+1]<<8);
 }
 
-template <int REG> inline Word &Reg(Machine::Impl &);
-template <> inline Word &Reg<A>(Machine::Impl &m) { return m.a; }
-template <> inline Word &Reg<X>(Machine::Impl &m) { return m.x; }
-template <> inline Word &Reg<Y>(Machine::Impl &m) { return m.y; }
+template <int REG> uint8_t& Reg() {
+	switch(REG) {
+        case A: return a;
+        case X: return x;
+        case Y: return y;
+	}
+}
 
 ///
 /// CONDITIONS AND THE STATUS REGISTER
 ///
 
-template <bool OPTSR = StatusOpt> struct flags {
-   	//static void call(Machine::Impl &m);
-};
-
 
    // S V - b d i Z C
    // 1 1 0 0 0 0 1 1
 
-template <> struct flags<false>
-{
-	inline static const Word& get(Machine::Impl &m) {
-		return m.sr;
+	const Word& get_SR() {
+		return sr;
 	}
-	inline static void set(Machine::Impl &m, Word sr) {
-		m.sr = sr;
+	void set_SR(Word s) {
+		sr = s;
 	}
-   	template <int REG> inline static void set_SZ(Machine::Impl &m) {
-		m.sr = (m.sr & 0x7d) | (Reg<REG>(m) & 0x80) | (!Reg<REG>(m) << 1);
+   	template <int REG> void set_SZ() {
+		sr = (sr & 0x7d) | (Reg<REG>() & 0x80) | (!Reg<REG>() << 1);
 	}
 
-   inline static void set_SZ(Machine::Impl &m, int res) {
-		m.sr = (m.sr & 0x7d) | (res & 0x80) | (!res << 1);
+   void set_SZ(int res) {
+		sr = (sr & 0x7d) | (res & 0x80) | (!res << 1);
 	}
 
-	inline static void set_SZC(Machine::Impl &m, int res) {
-		m.sr = (m.sr & 0x7c) | (res & 0x80) | (!(res & 0xff) << 1) | ((res>>8)&1);
+	void set_SZC(int res) {
+		sr = (sr & 0x7c) | (res & 0x80) | (!(res & 0xff) << 1) | ((res>>8)&1);
 	}
 
-	inline static void set_SZCV(Machine::Impl &m, int res, int arg) {
-		m.sr = (m.sr & 0x3c) | (res & 0x80) | (!res << 1) | ((res>>8)&1) | ((~(m.a ^ arg) & (m.a ^ res) & 0x80)>>1);
+	void set_SZCV(int res, int arg) {
+		sr = (sr & 0x3c) | (res & 0x80) | (!res << 1) | ((res>>8)&1) | ((~(a ^ arg) & (a ^ res) & 0x80)>>1);
 	}
-};
-
-template <> struct flags<true>
-{
-	template <int REG> inline static void set_SZ(Machine::Impl &m) {
-		m.lastWord = Reg<REG>(m);
-	}
-
-	inline static void set_SZC(Machine::Impl &m, int res)
-	{
-		m.lastWord = res & 0xff;
-		m.sr = (m.sr & 0x7c) | (res>>8);
-	}
-
-	template <int REG> inline static void set_SZCV(Machine::Impl &m, int res, int arg) {
-		m.lastWord = Reg<REG>(m);
-		m.sr = (m.sr & 0x3c) | (res>>8) | ((~(m.a ^ arg) & (m.a ^ res) & 0x80)>>1);
-	}
-
-	inline static Word get(Machine::Impl &m) {
-		return m.sr | (m.lastWord & 0x80) | (!m.lastWord << 1);
-	}
-};
 
 enum STATUSFLAGS { CARRY, ZERO, IRQ, DECIMAL, BRK, xXx, OVER, SIGN };
 
-template <int FLAG, bool v> void Set(Machine::Impl &m) {
-	m.sr = (m.sr & ~(1<<FLAG)) | (v<<FLAG);
+template <int FLAG, bool v> static void Set() {
+	sr = (sr & ~(1<<FLAG)) | (v<<FLAG);
+}
+
+static constexpr bool SET = true;
+static constexpr bool CLEAR = false;
+
+template <int FLAG, bool v> bool Check() {
+	return (sr & (1<<FLAG)) == v; 
 }
 
 
-template <int COND, bool OPTSR = StatusOpt> bool check(Machine::Impl &m);
+//template <int COND, bool OPTSR = StatusOpt> bool check(Machine<POLICY>::Impl &m);
 
 // COMMON
-
-template <> inline bool check<CC>(Machine::Impl &m) {
+/*
+template <> inline bool check<CC>(Machine<POLICY>::Impl &m) {
 	return !(m.sr & 0x01);
 }
 
-template <> inline bool check<CS>(Machine::Impl &m) {
+template <> inline bool check<CS>(Machine<POLICY>::Impl &m) {
 	return m.sr & 0x01;
 }
 
-template <> inline bool check<VC>(Machine::Impl &m) {
+template <> inline bool check<VC>(Machine<POLICY>::Impl &m) {
 	return (m.sr & 0x40);
 }
 
-template <> inline bool check<VS>(Machine::Impl &m) {
+template <> inline bool check<VS>(Machine<POLICY>::Impl &m) {
 	return m.sr & 0x40;
 }
 
 // NON OPT
 
-template <> inline bool check<MI, false>(Machine::Impl &m) {
+template <> inline bool check<MI, false>(Machine<POLICY>::Impl &m) {
 	return m.sr & 0x80;
 }
 
-template <> inline bool check<PL, false>(Machine::Impl &m) {
+template <> inline bool check<PL, false>(Machine<POLICY>::Impl &m) {
 	return !(m.sr & 0x80);
 }
 
-template <> inline bool check<EQ, false>(Machine::Impl &m) {
+template <> inline bool check<EQ, false>(Machine<POLICY>::Impl &m) {
 	return m.sr & 0x2;
 }
 
-template <> inline bool check<NE, false>(Machine::Impl &m) {
+template <> inline bool check<NE, false>(Machine<POLICY>::Impl &m) {
 	return !(m.sr & 0x2);
 }
 
 // OPT
 
-template <> inline bool check<MI, true>(Machine::Impl &m) {
+template <> inline bool check<MI, true>(Machine<POLICY>::Impl &m) {
 	return m.lastWord & 0x80;
 }
 
-template <> inline bool check<PL, true>(Machine::Impl &m) {
+template <> inline bool check<PL, true>(Machine<POLICY>::Impl &m) {
 	return !(m.lastWord & 0x80);
 }
 
-template <> inline bool check<EQ, true>(Machine::Impl &m) {
+template <> inline bool check<EQ, true>(Machine<POLICY>::Impl &m) {
 	return m.lastWord == 0;
 }
 
-template <> inline bool check<NE, true>(Machine::Impl &m) {
+template <> inline bool check<NE, true>(Machine<POLICY>::Impl &m) {
 	return m.lastWord != 0;
 }
+*/
 
 //
 //
@@ -191,88 +226,66 @@ template <> inline bool check<NE, true>(Machine::Impl &m) {
 
 static constexpr uint16_t IOMASK = 0;//0xff00;
 static constexpr uint16_t IOBANK = 0xd000;
-Word get_io(Machine::Impl &m, uint16_t addr) {
+Word get_io(uint16_t addr) {
 	return getchar();
 };
 
-void put_io(Machine::Impl &m, uint16_t addr, Word v) {
+void put_io(uint16_t addr, Word v) {
 	putchar(v);
 };
 
 
 // FETCH ADDRESS
 
-template <int MODE> uint16_t Address(Machine::Impl &m);
-
-template <> inline uint16_t Address<ZP>(Machine::Impl &m) {
-	return ReadPC(m);
-}
-
-template <> inline uint16_t Address<ZPX>(Machine::Impl &m) {
-	return ReadPC(m) + m.x;
-}
-
-template <> inline uint16_t Address<ZPY>(Machine::Impl &m) {
-	return ReadPC(m) + m.y;
-}
-
-template <> inline uint16_t Address<ABS>(Machine::Impl &m) {
-	return ReadPCW(m);
-}
-
-template <> inline uint16_t Address<ABSX>(Machine::Impl &m) {
-	return ReadPCW(m) + m.x;
-}
-
-template <> inline uint16_t Address<ABSY>(Machine::Impl &m) {
-	return ReadPCW(m) + m.y;
-}
-
-template <> inline uint16_t Address<INDX>(Machine::Impl &m) {
-	return Read16(m, ReadPC(m) + m.x);
-}
-
-template <> inline uint16_t Address<INDY>(Machine::Impl &m) {
-	return Read16(m, ReadPC(m)) + m.y;
+template <int MODE> uint16_t Address() {
+	switch(MODE) {
+		case ZP: return ReadPC();
+		case ZPX: return ReadPC() + x;
+		case ZPY: return ReadPC() + y;
+		case ABS: return ReadPCW();
+		case ABSX: return ReadPCW() + x;
+		case ABSY: return ReadPCW() + y;
+		case INDX: return Read16(ReadPC() + x);
+		case INDY: return Read16(ReadPC()) + y;
+	};
 }
 
 // WRITE MEMORY
 
-template<bool ALIGN = AlignReads> inline void Write(Machine::Impl &m, uint16_t adr, Word v) {
+inline void Write(uint16_t adr, Word v) {
 	if((adr & IOMASK) == IOBANK)
-		put_io(m, adr, v);
+		put_io(adr, v);
 	else
-		m.mem[adr] = v;
+		mem[adr] = v;
 }
 
-template <int MODE, bool ALIGN = AlignReads> inline void Write(Machine::Impl &m, Word v) {
-	uint16_t adr = Address<MODE>(m);
+template <int MODE> inline void Write(Word v) {
+	uint16_t adr = Address<MODE>();
 	if((adr & IOMASK) == IOBANK)
-		put_io(m, adr, v);
+		put_io(adr, v);
 	else
-		m.mem[adr] = v;
+		mem[adr] = v;
 }
 
 // READ MEMORY
 
-template <bool ALIGN = AlignReads> Word Read(Machine::Impl &m, uint16_t adr) {
+Word Read(uint16_t adr) {
 	if((adr & IOMASK) == IOBANK)
-		return get_io(m, adr);
+		return get_io(adr);
 	else
-		return m.mem[adr];
+		return mem[adr];
 }
 
-template <int MODE, bool ALIGN = AlignReads> Word Read(Machine::Impl &m) {
-	uint16_t adr = Address<MODE>(m);
+template <int MODE> Word Read() {
+	if(MODE == IMM)
+		return ReadPC();
+	uint16_t adr = Address<MODE>();
 	if((adr & IOMASK) == IOBANK)
-		return get_io(m, adr);
+		return get_io(adr);
 	else
-		return m.mem[adr];
+		return mem[adr];
 }
 
-template <> inline  Word Read<IMM>(Machine::Impl &m) {
-	return ReadPC(m);
-}
 
 ///
 ///
@@ -280,136 +293,141 @@ template <> inline  Word Read<IMM>(Machine::Impl &m) {
 ///
 ///
 
-template <int REG, int MODE> void Store(Machine::Impl &m) {
-	Write<MODE>(m, Reg<REG>(m));
+template <int REG, int MODE> static void Store(Machine<POLICY>::Impl &m) {
+	m.Write<MODE>(m.Reg<REG>());
 }
 
-template <int REG, int MODE> void Load(Machine::Impl &m) {
-	Reg<REG>(m) = Read<MODE>(m);
-	flags<>::set_SZ<REG>(m);
+template <int REG, int MODE> static void Load(Machine<POLICY>::Impl &m) {
+	m.Reg<REG>() = m.Read<MODE>();
+	m.set_SZ<REG>();
 }
 
-template <int COND> void Branch(Machine::Impl &m) {
+template <int FLAG, bool v> static void Branch(Machine<POLICY>::Impl &m) {
 	int8_t diff = (m.mem[m.pc++] & 0xff);
-	int d = check<COND>(m);
+	int d = m.Check<FLAG, v>();
 	m.cycles += d;
 	m.pc += (diff * d);
 }
 
-void Php(Machine::Impl &m) {
-	m.stack[m.sp--] = flags<>::get(m);
+void Php(Machine<POLICY>::Impl &m) {
+	m.stack[m.sp--] = m.get_SR();;
 }
 
-template<int MODE, int inc> void Inc(Machine::Impl &m) {
-	auto adr = Address<MODE>(m);
-	auto rc = Read(m, adr) + inc;
-	Write(m, adr, rc);
-	flags<>::set_SZ(m, rc);
+template<int MODE, int inc> static void Inc(Machine<POLICY>::Impl &m) {
+	auto adr = m.Address<MODE>(m);
+	auto rc = m.Read(adr) + inc;
+	m.Write(adr, rc);
+	m.set_SZ(rc);
 }
 
 // === COMPARE, ADD & SUBTRACT
 
-template<int REG, int MODE> void Bit(Machine::Impl &m) {
-	Word z = Read<MODE>(m);
+template<int REG, int MODE> static void Bit(Machine<POLICY>::Impl &m) {
+	Word z = m.Read<MODE>();
    	m.sr = (m.sr & 0x3e) | (z & 0xc0) | (!(z & m.a)<<1);
 }
 
-template<int REG, int MODE> void Cmp(Machine::Impl &m) {
-	Word z = ~Read<MODE>(m) & 0xff;
-	int rc = Reg<REG>(m) + z + 1;
-	flags<>::set_SZC(m, rc);
+template<int REG, int MODE> static void Cmp(Machine<POLICY>::Impl &m) {
+	Word z = ~m.Read<MODE>() & 0xff;
+	int rc = m.Reg<REG>() + z + 1;
+	m.set_SZC(rc);
 }
 
-template<int MODE> void Sbc(Machine::Impl &m) {
-	Word z = (~Read<MODE>(m)) & 0xff;
+template<int MODE> static void Sbc(Machine<POLICY>::Impl &m) {
+	Word z = (~m.Read<MODE>()) & 0xff;
 	int rc = m.a + z + (m.sr & 1);
-	flags<>::set_SZCV(m, rc, z);
+	m.set_SZCV(rc, z);
 	m.a = rc & 0xff;
 }
 
-template<int MODE> void Adc(Machine::Impl &m) {
-	auto z = Read<MODE>(m);
+template<int MODE> static void Adc(Machine<POLICY>::Impl &m) {
+	auto z = m.Read<MODE>();
 
 	int rc = m.a + z + (m.sr & 1);
-	flags<>::set_SZCV(m, rc, z);
+	m.set_SZCV(rc, z);
 	m.a = rc & 0xff;
 }
 
 
-template<int MODE> void And(Machine::Impl &m) {
-	m.a &= Read<MODE>(m);
-	flags<>::set_SZ<A>(m);
+template<int MODE> static void And(Machine<POLICY>::Impl &m) {
+	m.a &= m.Read<MODE>();
+	m.set_SZ<A>();
 }
 
-template<int MODE> void Ora(Machine::Impl &m) {
-	m.a |= Read<MODE>(m);
-	flags<>::set_SZ<A>(m);
+template<int MODE> static void Ora(Machine<POLICY>::Impl &m) {
+	m.a |= m.Read<MODE>();
+	m.set_SZ<A>();
 }
 
-template<int MODE> void Eor(Machine::Impl &m) {
-	m.a ^= Read<MODE>(m);
-	flags<>::set_SZ<A>(m);
+template<int MODE> static void Eor(Machine<POLICY>::Impl &m) {
+	m.a ^= m.Read<MODE>();
+	m.set_SZ<A>();
 }
 
 // === SHIFTS & ROTATES
 
-template<int MODE> void Asl(Machine::Impl &m) {
-	auto adr = Address<MODE>(m);
-	int rc = Read(m, adr) << 1;
-	flags<>::set_SZC(m, rc);
-	Write(m, adr, rc & 0xff);
+template<int MODE> static void Asl(Machine<POLICY>::Impl &m) {
+	if(MODE == ACC) {
+		int rc = m.a << 1;
+		m.set_SZC(rc);
+		m.a = rc & 0xff;
+		return;
+	}
+
+	auto adr = m.Address<MODE>();
+	int rc = m.Read(adr) << 1;
+	m.set_SZC(rc);
+	m.Write(adr, rc & 0xff);
 }
 
-template<> void Asl<ACC>(Machine::Impl &m) {
-	int rc = m.a << 1;
-	flags<>::set_SZC(m, rc);
-	m.a = rc & 0xff;
-}
-
-template<int MODE> void Lsr(Machine::Impl &m) {
-	auto adr = Address<MODE>(m);
-	int rc = Read(m, adr);
+template<int MODE> static void Lsr(Machine<POLICY>::Impl &m) {
+	if(MODE == ACC) {
+		m.sr = (m.sr & 0x7f) | ( m.a & 1);
+		m.a >>= 1;
+		m.set_SZ<A>();
+		return;
+	}
+	auto adr = m.Address<MODE>();
+	int rc = m.Read(adr);
 	m.sr = (m.sr & 0x7f) | ( rc & 1);
-	Write(m, adr, (rc >> 1) & 0xff);
-	flags<>::set_SZ(m, rc);
+	m.Write(adr, (rc >> 1) & 0xff);
+	m.set_SZ(rc);
 }
 
-template<> void Lsr<ACC>(Machine::Impl &m) {
-	m.sr = (m.sr & 0x7f) | ( m.a & 1);
-	m.a >>= 1;
-	flags<>::set_SZ<A>(m);
-}
-
-template<int MODE> void Ror(Machine::Impl &m) {
-	auto adr = Address<MODE>(m);
-	int rc = Read(m, adr) | (m.sr << 8);
-	Write(m, adr, (rc >> 1) & 0xff);
+template<int MODE> static void Ror(Machine<POLICY>::Impl &m) {
+	auto adr = m.Address<MODE>();
+	int rc = m.Read(m, adr) | (m.sr << 8);
+	m.Write(adr, (rc >> 1) & 0xff);
 	m.sr = (m.sr & 0x7f) | ( rc & 1);
-	flags<>::set_SZ(m, rc);
+	m.set_SZ(rc);
 }
 
-template<> void Ror<ACC>(Machine::Impl &m) {
+static void RorA(Machine<POLICY>::Impl &m) {
 	int rc  = ((m.sr<<8) | m.a) >> 1;
 	m.sr = (m.sr & 0x7f) | ( m.a & 1);
 	m.a = rc;
-	flags<>::set_SZ<A>(m);
+	m.set_SZ<A>();
 }
 
-template<int MODE> void Rol(Machine::Impl &m) {
-	auto adr = Address<MODE>(m);
-	int rc = (Read(m, adr) << 1) | (m.sr & 1);
-	Write(m, adr, rc & 0xff);
-	flags<>::set_SZC(m, rc);
+template<int MODE> static void Rol(Machine<POLICY>::Impl &m) {
+	auto adr = m.Address<MODE>();
+	int rc = (m.Read(adr) << 1) | (m.sr & 1);
+	m.Write(adr, rc & 0xff);
+	m.set_SZC(rc);
 }
 
-template<> void Rol<ACC>(Machine::Impl &m) {
+static void RolA(Machine<POLICY>::Impl &m) {
 	int rc  = (m.a << 1) | (m.sr & 1);
-	flags<>::set_SZC(m, rc);
+	m.set_SZC(rc);
 	m.a = rc;
 }
-std::vector<Instruction> instructionTable  {
 
-	{"nop", {{ 0xea, 2, NONE, [](Machine::Impl &m) {} }} },
+};
+
+template <typename POLICY>
+std::vector<Instruction<POLICY>> Machine<POLICY>::Impl::instructionTable  {
+
+	{"nop", {{ 0xea, 2, NONE, [](Machine::Impl &) {} }} },
 
     {"lda", {
 		{ 0xa9, 2, IMM, Load<A, IMM>},
@@ -474,14 +492,14 @@ std::vector<Instruction> instructionTable  {
 		{ 0xfe, 7, ABSX, Inc<ABSX, 1>},
 	} },
 
-	{ "tax", { { 0xaa, 2, NONE, [](Machine::Impl& m) { m.x = m.a ; flags<>::set_SZ<X>(m); } } } },
-	{ "txa", { { 0x8a, 2, NONE, [](Machine::Impl& m) { m.a = m.x ; flags<>::set_SZ<A>(m); } } } },
-	{ "dex", { { 0xca, 2, NONE, [](Machine::Impl& m) { m.x-- ; flags<>::set_SZ<X>(m); } } } },
-	{ "inx", { { 0xe8, 2, NONE, [](Machine::Impl& m) { m.x++ ; flags<>::set_SZ<X>(m); } } } },
-	{ "tay", { { 0xa8, 2, NONE, [](Machine::Impl& m) { m.y = m.a ; flags<>::set_SZ<Y>(m); } } } },
-	{ "tya", { { 0x98, 2, NONE, [](Machine::Impl& m) { m.a = m.y ; flags<>::set_SZ<A>(m); } } } },
-	{ "dey", { { 0x88, 2, NONE, [](Machine::Impl& m) { m.y-- ; flags<>::set_SZ<Y>(m); } } } },
-	{ "iny", { { 0xc8, 2, NONE, [](Machine::Impl& m) { m.y++ ; flags<>::set_SZ<Y>(m); } } } },
+	{ "tax", { { 0xaa, 2, NONE, [](Machine::Impl& m) { m.x = m.a ; m.set_SZ<X>(m); } } } },
+	{ "txa", { { 0x8a, 2, NONE, [](Machine::Impl& m) { m.a = m.x ; m.set_SZ<A>(m); } } } },
+	{ "dex", { { 0xca, 2, NONE, [](Machine::Impl& m) { m.x-- ; m.set_SZ<X>(m); } } } },
+	{ "inx", { { 0xe8, 2, NONE, [](Machine::Impl& m) { m.x++ ; m.set_SZ<X>(m); } } } },
+	{ "tay", { { 0xa8, 2, NONE, [](Machine::Impl& m) { m.y = m.a ; m.set_SZ<Y>(m); } } } },
+	{ "tya", { { 0x98, 2, NONE, [](Machine::Impl& m) { m.a = m.y ; m.set_SZ<A>(m); } } } },
+	{ "dey", { { 0x88, 2, NONE, [](Machine::Impl& m) { m.y-- ; m.set_SZ<Y>(m); } } } },
+	{ "iny", { { 0xc8, 2, NONE, [](Machine::Impl& m) { m.y++ ; m.set_SZ<Y>(m); } } } },
 
 	{ "txs", { { 0x9a, 2, NONE, [](Machine::Impl& m) { m.sp = m.x; } } } },
 	{ "tsx", { { 0xba, 2, NONE, [](Machine::Impl& m) { m.sp = m.x; } } } },
@@ -495,21 +513,17 @@ std::vector<Instruction> instructionTable  {
 	} } } },
 
 	{ "php", { { 0x08, 3, NONE, [](Machine::Impl& m) {
-		m.stack[m.sp--] = flags<>::get(m);
+		m.stack[m.sp--] = m.setSR(m, m.stack[++m.sp]);
 	} } } },
 
-	{ "plp", { { 0x28, 4, NONE, [](Machine::Impl& m) {
-		flags<>::set(m, m.stack[++m.sp]);
-	} } } },
-
-	{ "bcc", { { 0x90, 2, REL, Branch<CC> }, } },
-	{ "bcs", { { 0xb0, 2, REL, Branch<CS> }, } },
-	{ "bne", { { 0xd0, 2, REL, Branch<NE> }, } },
-	{ "beq", { { 0xf0, 2, REL, Branch<EQ> }, } },
-	{ "bpl", { { 0x10, 2, REL, Branch<PL> }, } },
-	{ "bmi", { { 0x30, 2, REL, Branch<MI> }, } },
-	{ "bvc", { { 0x50, 2, REL, Branch<VC> }, } },
-	{ "bvs", { { 0x70, 2, REL, Branch<VS> }, } },
+	{ "bcc", { { 0x90, 2, REL, Branch<CARRY, CLEAR> }, } },
+	{ "bcs", { { 0xb0, 2, REL, Branch<CARRY, SET> }, } },
+	{ "bne", { { 0xd0, 2, REL, Branch<ZERO, CLEAR> }, } },
+	{ "beq", { { 0xf0, 2, REL, Branch<ZERO, SET> }, } },
+	{ "bpl", { { 0x10, 2, REL, Branch<SIGN, CLEAR> }, } },
+	{ "bmi", { { 0x30, 2, REL, Branch<SIGN, SET> }, } },
+	{ "bvc", { { 0x50, 2, REL, Branch<OVERFLOW, CLEAR> }, } },
+	{ "bvs", { { 0x70, 2, REL, Branch<OVERFLOW, SET> }, } },
 
 	{ "adc", {
 		{ 0x69, 2, IMM, Adc<IMM>},
@@ -647,7 +661,7 @@ std::vector<Instruction> instructionTable  {
 
 	{ "jmp", {
 		{ 0x4c, 3, ABS, [](Machine::Impl &m) {
-			m.pc = ReadPCW(m);
+			m.pc = m.ReadPCW();
 	   }}
    	} },
 
@@ -655,11 +669,16 @@ std::vector<Instruction> instructionTable  {
 		{ 0x20, 3, ABS, [](Machine::Impl &m) {
 			m.stack[m.sp-- & 0xff] = (m.pc+1) & 0xff;
 			m.stack[m.sp-- & 0xff] = (m.pc+1) >> 8; 
-			m.pc = ReadPCW(m);
+			m.pc = m.ReadPCW();
 	   }}
    	} },
 
 };
+
+
+///
+///
+///
 
 struct Result {
 	int calls;
@@ -710,7 +729,7 @@ void disasm(void *ptr, struct Result &r) {
 
 }
 
-void checkCode() {
+template <typename POLICY> void checkCode() {
 
 	Result r;
 	int jumps = 0;
@@ -718,7 +737,7 @@ void checkCode() {
 	int calls = 0;
 	int opcodes = 0;
 
-	for(const auto &i : instructionTable) {
+	for(const auto &i : Machine<POLICY>::Impl::instructionTable) {
 		for(const auto &o : i.opcodes) {
 			disasm((void*)o.op, r);
 			printf("%s (%d/%d/%d)\n", i.name.c_str(), r.opcodes, r.calls, r.jumps);
@@ -731,28 +750,8 @@ void checkCode() {
 	printf("### AVG OPCODES: %d TOTAL CALLS/JUMPS: %d/%d\n", opcodes / count, calls, jumps);
 }
 
-
-
-static Opcode jumpTable[256];
-//static const char* opNames[256];
-
-void Machine::init() {
-	//Machine &m = *this;
-	memset(impl.get(), 0, sizeof(Machine::Impl));
-	impl->sp = 0xff;
-	impl->stack = &impl->mem[0x100];
-	impl->cycles = 0;
-	for(const auto &i : instructionTable) {
-		for(const auto &o : i.opcodes) {
-			jumpTable[o.code].op = o.op;
-			//opNames[o.code] = i.name.c_str();
-		}
-	}
-
-}
-
-void checkEffect(Machine::Impl &m) {
-	static Machine::Impl om;
+template <typename POLICY> void checkEffect(typename Machine<POLICY>::Impl &m) {
+	static typename Machine<POLICY>::Impl om;
 	printf("[ ");
 	if(om.pc != m.pc)
 		printf("PC := %04x ", (unsigned)m.pc);
@@ -782,50 +781,7 @@ void checkEffect(Machine::Impl &m) {
 	om.pc = m.pc;
 	om.sp = m.sp; 
 }
-
-
-void Machine::set_break(uint16_t pc, std::function<void(Machine &m)> f) {
-	impl->breaks[pc] = f;
-}
-void Machine::writeRam(uint16_t org, const Word data) {
-	impl->mem[org] = data;
-}
-void Machine::writeRam(uint16_t org, const Word *data, int size) {
-	memcpy(&impl->mem[org], data, size * sizeof(Word));
-}
-void Machine::readRam(uint16_t org, Word *data, int size) {
-	memcpy(data, &impl->mem[org], size * sizeof(Word));
-}
-Word Machine::readRam(uint16_t org) {
-	return impl->mem[org];
-}
-uint8_t Machine::regA() { return impl->a; }
-uint8_t Machine::regX() { return impl->x; }	
-uint8_t Machine::regY() { return impl->y; }	
-uint8_t Machine::regSR() { return impl->sr; }	
-
-void Machine::setPC(const int16_t &pc) {
-	impl->pc = pc;
-}
-
-uint32_t Machine::run(uint32_t runc) {
-
-	auto toCycles = impl->cycles + runc;
-	uint32_t opcodes = 0;
-	while(impl->cycles < toCycles) {
-
-		uint8_t code = ReadPC(*impl);
-		if(code == 0x60 && (uint8_t)impl->sp == 0xff)
-			return opcodes;
-		auto &op = jumpTable[code];
-		op.op(*impl);
-		impl->cycles += op.cycles;
-		opcodes++;
-	}
-	return opcodes;
-}
-
-
+/*
 uint32_t Machine::runDebug(uint32_t runc) {
 
 	auto toCycles = impl->cycles + runc;
@@ -847,7 +803,7 @@ uint32_t Machine::runDebug(uint32_t runc) {
 	}
 	return opcodes;
 }
-
+*/
 } // namespace
 
 #include <benchmark/benchmark.h>
@@ -873,7 +829,7 @@ static void Bench_sort(benchmark::State &state) {
 	};
 
 
-	sixfive::Machine m;
+	sixfive::Machine<> m;
 	for(int i=0; i<(int)sizeof(data); i++)
 		m.writeRam(0x2000 + i, data[i]);
 	for(int i=0; i<(int)sizeof(sortCode); i++)
@@ -905,7 +861,7 @@ static void Bench_emulate(benchmark::State &state) {
 		0x05, 0x03, 0x00, 0x04, 0x02, 0x06, 0x04
 	};
 
-	sixfive::Machine m;
+	sixfive::Machine<> m;
 	for(int i=0; i<(int)sizeof(WEEK); i++)
 		m.writeRam(0x1000 + i, WEEK[i]);
 	m.setPC(0x1000);
@@ -920,10 +876,11 @@ static void Bench_emulate(benchmark::State &state) {
 BENCHMARK(Bench_emulate);
 
 static void Bench_allops(benchmark::State &state) {
-	sixfive::Machine m;
+	sixfive::Machine<> m;
+	m.setPC(0x1000);
 	while(state.KeepRunning()) {
 		m.setPC(0x1000);
-		for(const auto &i : sixfive::instructionTable) {
+		for(const auto &i : sixfive::Machine<>::Impl::instructionTable) {
 			for(const auto &o : i.opcodes) {
 				o.op(*m.impl);
 			}
@@ -932,13 +889,3 @@ static void Bench_allops(benchmark::State &state) {
 
 }
 BENCHMARK(Bench_allops);
-
-#ifdef TEST
-
-int main(int argc, char **argv) {
-	sixfive::Machine m;
-	sixfive::ops[0].opcodes[argc].op(m);
-	return 0;
-}
-
-#endif
