@@ -20,9 +20,21 @@ private:
 bool parse(const std::string &code, 
 		std::function<int(uint16_t org, const std::string &op, const std::string &arg)> encode);
 
+#include <benchmark/benchmark.h>
+
 int main(int argc, char **argv)
 {
 	using namespace sixfive;
+
+
+	if(argc >= 2 && strcmp(argv[1], "-t") == 0) {
+		checkCode();
+		benchmark::Initialize(&argc, argv);
+		benchmark::RunSpecifiedBenchmarks();
+		printf("%d\n", (int)sizeof(int_fast8_t));
+		return 0;
+	}
+
 	Machine m;
 	m.init();
 
@@ -36,17 +48,20 @@ int main(int argc, char **argv)
 	fclose(fp);
 
 	//std::unordered_map<uint16_t, std::string> reqs;
-
-
+	int maxOrg = 0;
 	bool ok = parse(&source[0], [&](uint16_t org, const std::string &op, const std::string &arg) -> int {
 		if(op == "b") {
 			//memcpy(&m.mem[org], &arg[0], arg.size());
-			m.writeRam(org, (uint8_t*)&arg[0], arg.size());
+			for(int i=0; i<(int)arg.size(); i++)
+				m.writeRam(org+i, arg[i]);
+			int o = org + arg.size();
+			if(o > maxOrg)
+				maxOrg = o;
 			return arg.size();
 		}
 		printf(">> %s %s\n", op.c_str(), arg.c_str());
 		if(op[0] == '@') {
-/*			//reqs[org] = arg;
+			//reqs[org] = arg;
 			std::string what, value;
 			std::vector<std::pair<int, int>> reqs;
 			enum { RA = 0x10000, RX, RY, RSR, RSP, RPC };
@@ -63,33 +78,49 @@ int main(int argc, char **argv)
 				printf("%s must be %02x\n", what.c_str(), v);
 				reqs.push_back(std::make_pair(w,v));
 			}
-			set_break(org, [=](Machine &m) {
-					printf("Break at %04x\n", m.pc);
+			m.set_break(org, [=](Machine &m) {
+					
+					//printf("Break at %04x\n", m.getPC());
+					printf("Break\n");
 					for(auto &r : reqs) {
 						int v = 0;
 						switch(r.first) {
-						case RA: v = m.a; break;
-						case RX: v = m.x; break;
-						case RY: v = m.y; break;
-						case RSR: v = m.sr; break;
-						default: v = m.mem[r.first]; break;
+						case RA: v = m.regA(); break;
+						case RX: v = m.regX(); break;
+						case RY: v = m.regY(); break;
+						case RSR: v = m.regSR(); break;
+						default: v = m.readRam(r.first); break;
 						}
 						printf("COMP %d %d\n", v, r.second);
 								
 						if(v != r.second)
 							throw run_exception(std::string("REQ Failed: ") + std::to_string(v) + " != " + std::to_string(r.second));
 					}
+					printf("DONE\n");
 
 			});
-*/
+
 			return 0;
 		}
-		uint8_t temp[4];
+		Word temp[4];
 		int len = assemble(org, &temp[0], std::string(" ") + op + " " + arg);
-		if(len > 0)
+		if(len > 0) {
 			m.writeRam(org, &temp[0], len);
+			auto o = org + len;
+			if(o > maxOrg)
+				maxOrg = o;
+		}
 		return len;
 	});
+
+	Word temp[65536];
+	int len = maxOrg - 0x1000;
+	if(len > 0) {
+		fp = fopen("dump.dat", "wb");
+		m.readRam(0x1000, temp, len);
+		fwrite(temp, 1, len, fp);
+		fclose(fp);
+	}
 
 	if(!ok) {
 		printf("Parse failed\n");

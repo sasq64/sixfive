@@ -1,8 +1,12 @@
-
+	clc
+	lda #$90
+	adc #$80
 
 	sec
+
 	lda #$50
 	sbc #$20
+	nop
 @req a=0x30,sr=0x01
 	sbc #$40
 @req a=0xf0,sr=0x80

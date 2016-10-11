@@ -4,9 +4,11 @@
 
 #include "emulator.h"
 
+#include "zyan-disassembler-engine/Zydis/Zydis.hpp"
+
 namespace sixfive {
 
-constexpr bool AlignReads = false;
+constexpr bool AlignReads = true;
 constexpr bool StatusOpt = false;
 
 
@@ -24,6 +26,7 @@ struct Machine::Impl {
 	Word *stack;
 	Word mem[65536];
 	uint32_t cycles;
+	std::unordered_map<uint16_t, std::function<void(Machine &m)>> breaks;
 
 };
 
@@ -77,7 +80,7 @@ template <> struct flags<false>
 	inline static void set(Machine::Impl &m, Word sr) {
 		m.sr = sr;
 	}
-   template <int REG> inline static void set_SZ(Machine::Impl &m) {
+   	template <int REG> inline static void set_SZ(Machine::Impl &m) {
 		m.sr = (m.sr & 0x7d) | (Reg<REG>(m) & 0x80) | (!Reg<REG>(m) << 1);
 	}
 
@@ -186,13 +189,13 @@ template <> inline bool check<NE, true>(Machine::Impl &m) {
 //
 
 
-static constexpr uint16_t IOMASK = 0xff00;
+static constexpr uint16_t IOMASK = 0;//0xff00;
 static constexpr uint16_t IOBANK = 0xd000;
 Word get_io(Machine::Impl &m, uint16_t addr) {
 	return getchar();
 };
 
-void put_io(Machine::Impl &m, uint16_t addr, uint8_t v) {
+void put_io(Machine::Impl &m, uint16_t addr, Word v) {
 	putchar(v);
 };
 
@@ -287,7 +290,7 @@ template <int REG, int MODE> void Load(Machine::Impl &m) {
 }
 
 template <int COND> void Branch(Machine::Impl &m) {
-	auto diff = ((int8_t*)m.mem)[m.pc++];
+	int8_t diff = (m.mem[m.pc++] & 0xff);
 	int d = check<COND>(m);
 	m.cycles += d;
 	m.pc += (diff * d);
@@ -306,14 +309,19 @@ template<int MODE, int inc> void Inc(Machine::Impl &m) {
 
 // === COMPARE, ADD & SUBTRACT
 
+template<int REG, int MODE> void Bit(Machine::Impl &m) {
+	Word z = Read<MODE>(m);
+   	m.sr = (m.sr & 0x3e) | (z & 0xc0) | (!(z & m.a)<<1);
+}
+
 template<int REG, int MODE> void Cmp(Machine::Impl &m) {
-	Word z = ~Read<MODE>(m);
+	Word z = ~Read<MODE>(m) & 0xff;
 	int rc = Reg<REG>(m) + z + 1;
 	flags<>::set_SZC(m, rc);
 }
 
 template<int MODE> void Sbc(Machine::Impl &m) {
-	Word z = ~(Read<MODE>(m));
+	Word z = (~Read<MODE>(m)) & 0xff;
 	int rc = m.a + z + (m.sr & 1);
 	flags<>::set_SZCV(m, rc, z);
 	m.a = rc & 0xff;
@@ -625,9 +633,14 @@ std::vector<Instruction> instructionTable  {
 		{ 0x3e, 7, ABSX, Rol<ABSX>},
 	} },
 
+	{ "bit", {
+		{ 0x24, 3, ZP, Bit<X, ZP>},
+		{ 0x2c, 4, ABS, Bit<X, ABS>},
+	} },
+
 	{ "rts", {
 		{ 0x60, 2, NONE, [](Machine::Impl &m) {  
-			m.pc = (m.stack[m.sp+2] | (m.stack[m.sp+1]<<8))+1;
+			m.pc = (m.stack[(m.sp&0xff)+2] | (m.stack[(m.sp&0xff)+1]<<8))+1;
 			m.sp += 2;
 		}}
 	} },
@@ -648,6 +661,78 @@ std::vector<Instruction> instructionTable  {
 
 };
 
+struct Result {
+	int calls;
+	int opcodes;
+	int jumps;
+	bool tooLong;
+};
+
+void disasm(void *ptr, struct Result &r) {
+
+	using namespace Zydis;
+
+	MemoryInput input(ptr, 0x200);
+    InstructionInfo info;
+    InstructionDecoder decoder;
+    decoder.setDisassemblerMode(DisassemblerMode::M32BIT);
+    decoder.setDataSource(&input);
+    decoder.setInstructionPointer((uint64_t)ptr);
+    IntelInstructionFormatter formatter;
+	r.tooLong = false;
+	r.calls = r.opcodes = r.jumps = 0;
+	while (decoder.decodeInstruction(info))
+    {
+        if (info.flags & IF_ERROR_MASK)
+        {
+        } 
+        else
+        {
+			printf("    %s\n", formatter.formatInstruction(info));
+        }
+
+		if(info.mnemonic >= InstructionMnemonic::JA && info.mnemonic <= InstructionMnemonic::JS)
+			r.jumps++;
+
+		switch(info.mnemonic) {
+		case InstructionMnemonic::RET:
+			return;
+		case InstructionMnemonic::CALL:
+			r.calls++;
+			break;
+		default:
+			break;
+		}
+		r.opcodes++;
+    }
+	r.tooLong = true;
+	return;
+
+}
+
+void checkCode() {
+
+	Result r;
+	int jumps = 0;
+	int count = 0;
+	int calls = 0;
+	int opcodes = 0;
+
+	for(const auto &i : instructionTable) {
+		for(const auto &o : i.opcodes) {
+			disasm((void*)o.op, r);
+			printf("%s (%d/%d/%d)\n", i.name.c_str(), r.opcodes, r.calls, r.jumps);
+			jumps += r.jumps;
+			calls += r.calls;
+			opcodes += r.opcodes;
+			count++;
+		}
+	}
+	printf("### AVG OPCODES: %d TOTAL CALLS/JUMPS: %d/%d\n", opcodes / count, calls, jumps);
+}
+
+
+
 static Opcode jumpTable[256];
 //static const char* opNames[256];
 
@@ -656,6 +741,7 @@ void Machine::init() {
 	memset(impl.get(), 0, sizeof(Machine::Impl));
 	impl->sp = 0xff;
 	impl->stack = &impl->mem[0x100];
+	impl->cycles = 0;
 	for(const auto &i : instructionTable) {
 		for(const auto &o : i.opcodes) {
 			jumpTable[o.code].op = o.op;
@@ -683,7 +769,7 @@ void checkEffect(Machine::Impl &m) {
 	printf("]\n");
 	for(int i=0; i<65536; i++)
 		if(m.mem[i] != om.mem[i]) {
-			printf("%04x := %02x ", i, m.mem[i]);
+			printf("%04x := %02x ", i, m.mem[i] & 0xff);
 			om.mem[i] = m.mem[i];
 		}
 	puts("");
@@ -694,41 +780,158 @@ void checkEffect(Machine::Impl &m) {
 	om.sp = m.sp;
 	om.sr = m.sr;
 	om.pc = m.pc;
-	om.sp = m.sp;
+	om.sp = m.sp; 
 }
 
-std::unordered_map<uint16_t, std::function<void(Machine &m)>> breaks;
 
-void set_break(uint16_t pc, std::function<void(Machine &m)> f) {
-	breaks[pc] = f;
+void Machine::set_break(uint16_t pc, std::function<void(Machine &m)> f) {
+	impl->breaks[pc] = f;
 }
-void Machine::writeRam(uint16_t org, const uint8_t *data, int size) {
-	memcpy(&impl->mem[org], data, size);
+void Machine::writeRam(uint16_t org, const Word data) {
+	impl->mem[org] = data;
 }
+void Machine::writeRam(uint16_t org, const Word *data, int size) {
+	memcpy(&impl->mem[org], data, size * sizeof(Word));
+}
+void Machine::readRam(uint16_t org, Word *data, int size) {
+	memcpy(data, &impl->mem[org], size * sizeof(Word));
+}
+Word Machine::readRam(uint16_t org) {
+	return impl->mem[org];
+}
+uint8_t Machine::regA() { return impl->a; }
+uint8_t Machine::regX() { return impl->x; }	
+uint8_t Machine::regY() { return impl->y; }	
+uint8_t Machine::regSR() { return impl->sr; }	
 
 void Machine::setPC(const int16_t &pc) {
 	impl->pc = pc;
 }
 
-void Machine::run(uint32_t runc) {
+uint32_t Machine::run(uint32_t runc) {
 
 	auto toCycles = impl->cycles + runc;
+	uint32_t opcodes = 0;
+	while(impl->cycles < toCycles) {
+
+		uint8_t code = ReadPC(*impl);
+		if(code == 0x60 && (uint8_t)impl->sp == 0xff)
+			return opcodes;
+		auto &op = jumpTable[code];
+		op.op(*impl);
+		impl->cycles += op.cycles;
+		opcodes++;
+	}
+	return opcodes;
+}
+
+
+uint32_t Machine::runDebug(uint32_t runc) {
+
+	auto toCycles = impl->cycles + runc;
+	uint32_t opcodes = 0;
 	while(impl->cycles < toCycles) {
 
 		checkEffect(*impl);
 
-		auto code = ReadPC(*impl);
-		if(code == 0x60 && impl->sp == 0xff)
-			return;
+		uint8_t code = ReadPC(*impl);
+		printf("code %02x\n", code);
+		if(code == 0x60 && (uint8_t)impl->sp == 0xff)
+			return opcodes;
 		auto &op = jumpTable[code];
 		op.op(*impl);
 		impl->cycles += op.cycles;
-		//if(breaks[pc])
-		//	breaks[pc](*this);
+		if(impl->breaks.count(impl->pc) == 1)
+			impl->breaks[impl->pc](*this);
+		opcodes++;
 	}
+	return opcodes;
 }
 
 } // namespace
+
+#include <benchmark/benchmark.h>
+
+static void Bench_sort(benchmark::State &state) {
+
+	static const uint8_t sortCode[] =
+	{
+		0xa0, 0x00, 0x84, 0x32, 0xb1, 0x30, 0xaa, 0xc8,
+		0xca, 0xb1, 0x30, 0xc8, 0xd1, 0x30, 0x90, 0x10,
+		0xf0, 0x0e, 0x48, 0xb1, 0x30, 0x88, 0x91, 0x30,
+		0x68, 0xc8, 0x91, 0x30, 0xa9, 0xff, 0x85, 0x32,
+		0xca, 0xd0, 0xe6, 0x24, 0x32, 0x30, 0xd9, 0x60
+	};
+
+	static const uint8_t data[] = {
+		0,
+		19,73,2,54,97,21,45,66,13,139,56,220,50,30,20,67,111,109,175,4,66,100,
+		19,73,2,54,97,21,45,66,13,139,56,220,50,30,20,67,111,109,175,4,66,100,
+		19,73,2,54,97,21,45,66,13,139,56,220,50,30,20,67,111,109,175,4,66,100,
+		19,73,2,54,97,21,45,66,13,139,56,220,50,30,20,67,111,109,175,4,66,100,
+		19,73,2,54,97,21,45,66,13,139,56,220,50,30,20,67,111,109,175,4,66,100,
+	};
+
+
+	sixfive::Machine m;
+	for(int i=0; i<(int)sizeof(data); i++)
+		m.writeRam(0x2000 + i, data[i]);
+	for(int i=0; i<(int)sizeof(sortCode); i++)
+		m.writeRam(0x1000 + i, sortCode[i]);
+	m.writeRam(0x30, 0x00);
+	m.writeRam(0x31, 0x20);
+	m.writeRam(0x2000, sizeof(data)-1);
+	m.setPC(0x1000);
+	printf("Opcodes %d\n", m.run(5000));
+	while(state.KeepRunning())
+	{
+		m.setPC(0x1000);
+		m.run(5000);
+	}
+
+}
+BENCHMARK(Bench_sort);
+
+static void Bench_emulate(benchmark::State &state) {
+
+	static const unsigned char WEEK[] =
+	{
+		0xa0, 0x74, 0xa2, 0x0a, 0xa9, 0x07, 0x20, 0x0a,
+		0x10, 0x60, 0xe0, 0x03, 0xb0, 0x01, 0x88, 0x49,
+		0x7f, 0xc0, 0xc8, 0x7d, 0x2a, 0x10, 0x85, 0x06,
+		0x98, 0x20, 0x26, 0x10, 0xe5, 0x06, 0x85, 0x06,
+		0x98, 0x4a, 0x4a, 0x18, 0x65, 0x06, 0x69, 0x07,
+		0x90, 0xfc, 0x60, 0x01, 0x05, 0x06, 0x03, 0x01,
+		0x05, 0x03, 0x00, 0x04, 0x02, 0x06, 0x04
+	};
+
+	sixfive::Machine m;
+	for(int i=0; i<(int)sizeof(WEEK); i++)
+		m.writeRam(0x1000 + i, WEEK[i]);
+	m.setPC(0x1000);
+	printf("Opcodes %d\n", m.run(5000));
+	while(state.KeepRunning())
+	{
+		m.setPC(0x1000);
+		m.run(5000);
+	}
+};
+
+BENCHMARK(Bench_emulate);
+
+static void Bench_allops(benchmark::State &state) {
+	sixfive::Machine m;
+	while(state.KeepRunning()) {
+		m.setPC(0x1000);
+		for(const auto &i : sixfive::instructionTable) {
+			for(const auto &o : i.opcodes) {
+				o.op(*m.impl);
+			}
+		}
+	}
+
+}
+BENCHMARK(Bench_allops);
 
 #ifdef TEST
 

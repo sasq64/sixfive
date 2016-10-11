@@ -29,13 +29,16 @@ MARCH:   EOR #$7F        ; Invert A so carry works right
          CPY #200        ; Carry will be 1 if 22nd century
          ADC MTAB-1,X    ; A is now day+month offset
          STA TMP
+@req 0x06=0x7a
          TYA             ; Get the year
          JSR MOD7        ; Do a modulo to prevent overflow
          SBC TMP         ; Combine with day+month
          STA TMP
+@req 0x06=0x86
          TYA             ; Get the year again
          LSR             ; Divide it by 4
          LSR
+@req a=0x1d
          CLC             ; Add it to y+m+d and fall through
          ADC TMP
 MOD7:    ADC #7          ; Returns (A+3) modulo 7

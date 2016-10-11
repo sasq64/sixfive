@@ -73,7 +73,7 @@ Arg parse(const std::string &a) {
 	return Arg(mode, v);
 }
 
-int assembleLine(const std::string &line, uint8_t *output, int pc) {
+int assembleLine(const std::string &line, Word *output, int pc) {
 	std::regex line_regex(R"(^(\w+:?)?\s*((\w+)\s*(\S+)?)?\s*(;.*)?$)");
 	std::smatch matches;
 	if(line == "") return 0;
