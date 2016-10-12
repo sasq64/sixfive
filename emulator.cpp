@@ -130,7 +130,7 @@ static void Bench_sort(benchmark::State &state) {
 	m.writeRam(0x31, 0x20);
 	m.writeRam(0x2000, sizeof(data)-1);
 	m.setPC(0x1000);
-	//printf("Opcodes %d\n", m.run(50000));
+	printf("Opcodes %d\n", m.run(50000000));
 	//uint8_t temp[256];
 	//m.readRam(0x2000, temp, sizeof(data));
 	//for(int i=0; i<sizeof(data)+1; i++)
@@ -138,6 +138,8 @@ static void Bench_sort(benchmark::State &state) {
 	//puts("");
 	while(state.KeepRunning())
 	{
+		for(int i=1; i<(int)sizeof(data); i++)
+			m.writeRam(0x2000 + i, data[i]);
 		m.setPC(0x1000);
 		m.run(50000000);
 	}

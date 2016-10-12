@@ -30,33 +30,12 @@ enum AdressingMode {
 	ABSY
 };
 
-constexpr static const char* modeNames[] = { 
-	"ILLEGAL",
-	"NONE",
-	"ACC",
-
-	"SIZE2",
-
-	"#IMM",
-	"REL",
-
-	"$ZP",
-	"$ZP,X",
-	"$ZP,Y",
-	"$(ZP,X)",
-	"$(ZP),Y",
-
-	"SIZE3",
-
-	"($IND)",
-	"$ABS",
-	"$ABS,X",
-	"$ABS,Y",
-};
-
 // Registers
 enum REGNAME { NOREG, A, X, Y, SP };
 // Adressing modes
+
+
+template <typename POLICY> struct Machine;
 
 struct DefaultPolicy
 {
@@ -67,6 +46,9 @@ struct DefaultPolicy
 	static constexpr bool AlignReads = false;
 	static constexpr bool StatusOpt = false;
 	static constexpr int MemSize = 65536;
+
+	static inline constexpr bool eachOp(Machine<DefaultPolicy>&) { return false; }
+
 };
 
 template <typename POLICY = DefaultPolicy> struct Machine
@@ -162,81 +144,15 @@ template <typename POLICY = DefaultPolicy> struct Machine
 		uint32_t opcodes = 0;
 		while(cycles < toCycles) {
 
+			if(POLICY::eachOp(*this))
+				break;
+
 			uint8_t code = ReadPC();
 			if(code == 0x60 && (uint8_t)sp == 0xff)
 				return opcodes;
 			auto &op = jumpTable[code];
 			op.op(*this);
 			cycles += op.cycles;
-			opcodes++;
-		}
-		return opcodes;
-	}
-
-	void checkEffect() {
-		static Machine om;
-		printf("[ ");
-		if(om.pc != pc)
-			printf("PC := %04x ", (unsigned)pc);
-		if(om.a != a)
-			printf("A := %02x ", a);
-		if(om.x != x)
-			printf("X := %02x ", x);
-		if(om.y != y)
-			printf("Y := %02x ", y);
-		if(om.sr != sr)
-			printf("SR := %02x ", sr);
-		if(om.sp != sp)
-			printf("SP := %02x ", sp);
-		printf("]\n");
-		for(int i = 0; i < 65536; i++)
-			if(mem[i] != om.mem[i]) {
-				printf("%04x := %02x ", i, mem[i] & 0xff);
-				om.mem[i] = mem[i];
-			}
-		puts("");
-
-		om.a = a;
-		om.x = x;
-		om.y = y;
-		om.sp = sp;
-		om.sr = sr;
-		om.pc = pc;
-		om.sp = sp;
-	}
-
-	uint32_t runDebug(uint32_t runc) {
-
-		auto toCycles = cycles + runc;
-		uint32_t opcodes = 0;
-		int lastpc = -1;
-		while(cycles < toCycles) {
-
-			//checkEffect();
-
-			uint8_t code = ReadPC();
-			//printf("code %02x\n", code);
-			//printf("PC: %04x : [%02x] %s (A:%02x X:%02x Y:%02x P:%02x S:%02x\n", pc - 1, code, opNames[code].c_str(), a,x,y,sr,sp);
-			if(code == 0x60 && (uint8_t)sp == 0xff) {
-
-				printf("DONE\n");
-				printf("PC: %04x : [%02x] %s (A:%02x X:%02x Y:%02x P:%02x S:%02x\n", pc - 1, code, opNames[code].c_str(), a,x,y,sr,sp);
-				
-				return opcodes;
-			}
-			auto &op = jumpTable[code];
-			op.op(*this);
-			cycles += op.cycles;
-			if(breaks.count(pc) == 1)
-				breaks[pc](*this);
-
-			if(pc == lastpc) {
-				printf("STALL\n");
-				printf("PC: %04x : [%02x] %s (A:%02x X:%02x Y:%02x P:%02x S:%02x\n", pc - 1, code, opNames[code].c_str(), a,x,y,sr,sp);
-				return opcodes;
-			}
-			lastpc = pc;
-
 			opcodes++;
 		}
 		return opcodes;
@@ -787,6 +703,5 @@ public:
 };
 
 void checkAllCode();
-// void checkSpeed();
 
 } // namespace
