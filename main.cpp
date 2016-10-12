@@ -2,6 +2,7 @@
 #include "assembler.h"
 
 #include <coreutils/utils.h>
+#include <coreutils/file.h>
 
 #include <functional>
 #include <unordered_map>
@@ -37,6 +38,17 @@ int main(int argc, char **argv)
 
 	Machine<> m;
 	m.init();
+
+	if(argc >= 2 && strcmp(argv[1], "-X") == 0) {
+		utils::File f { "6502test.bin" };
+		auto data = f.readAll();
+		data[0x3af8] = 0x60;
+		m.writeRam(0, &data[0], 0x10000);
+		m.setPC(0x1000);
+		m.runDebug(1000000000);
+		return 0;
+	}
+
 
 	FILE *fp = fopen(argv[1], "rb");
 	fseek(fp, 0, SEEK_END);
@@ -131,7 +143,7 @@ int main(int argc, char **argv)
 	//return 0;
 	m.setPC(0x01000);
 	//m.pc = 0x1000;
-	m.run(1000);
+	m.runDebug(100000);
 
 	//printf("%02x\n", m.mem[0x2000]);
 	return 0;

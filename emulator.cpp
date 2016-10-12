@@ -27,13 +27,8 @@ void disasm(void *ptr, struct Result &r) {
 	r.calls = r.opcodes = r.jumps = 0;
 	while (decoder.decodeInstruction(info))
     {
-        if (info.flags & IF_ERROR_MASK)
-        {
-        } 
-        else
-        {
+        if(!(info.flags & IF_ERROR_MASK))
 			printf("    %s\n", formatter.formatInstruction(info));
-        }
 
 		if(info.mnemonic >= InstructionMnemonic::JA && info.mnemonic <= InstructionMnemonic::JS)
 			r.jumps++;
@@ -74,7 +69,7 @@ template <typename POLICY> void checkCode() {
 			count++;
 		}
 	}
-	printf("### AVG OPCODES: %d TOTAL CALLS/JUMPS: %d/%d\n", opcodes / count, calls, jumps);
+	printf("### AVG OPCODES: %d TOTAL OPS/CALLS/JUMPS: %d/%d/%d\n", opcodes / count, opcodes,calls, jumps);
 }
 
 void checkAllCode() {
@@ -123,8 +118,6 @@ static void Bench_sort(benchmark::State &state) {
 		19,73,2,54,97,21,45,66,13,139,56,220,50,30,20,67,111,109,175,4,66,100,
 		19,73,2,54,97,21,45,66,13,139,56,220,50,30,20,67,111,109,175,4,66,100,
 		19,73,2,54,97,21,45,66,13,139,56,220,50,30,20,67,111,109,175,4,66,100,
-		19,73,2,54,97,21,45,66,13,139,56,220,50,30,20,67,111,109,175,4,66,100,
-		19,73,2,54,97,21,45,66,13,139,56,220,50,30,20,67,111,109,175,4,66,100,
 	};
 
 
@@ -137,11 +130,16 @@ static void Bench_sort(benchmark::State &state) {
 	m.writeRam(0x31, 0x20);
 	m.writeRam(0x2000, sizeof(data)-1);
 	m.setPC(0x1000);
-	printf("Opcodes %d\n", m.run(50000));
+	//printf("Opcodes %d\n", m.run(50000));
+	//uint8_t temp[256];
+	//m.readRam(0x2000, temp, sizeof(data));
+	//for(int i=0; i<sizeof(data)+1; i++)
+	//	printf("%02x ", temp[i]);
+	//puts("");
 	while(state.KeepRunning())
 	{
 		m.setPC(0x1000);
-		m.run(50000);
+		m.run(50000000);
 	}
 
 }
@@ -174,6 +172,7 @@ static void Bench_emulate(benchmark::State &state) {
 		m.writeRam(0x1000 + i, WEEK[i]);
 	m.setPC(0x1000);
 	printf("Opcodes %d\n", m.run(5000));
+	printf("A: %d\n", m.regA());
 	while(state.KeepRunning())
 	{
 		m.setPC(0x1000);

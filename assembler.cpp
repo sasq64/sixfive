@@ -5,30 +5,6 @@
 
 namespace sixfive {
 
-const static std::string modeNames[] = { 
-	"ILLEGAL",
-	"NONE",
-	"ACC",
-
-	"SIZE2",
-
-	"#IMM",
-	"REL",
-
-	"$ZP",
-	"$ZP,X",
-	"$ZP,Y",
-	"$(ZP,X)",
-	"$(ZP),Y",
-
-	"SIZE3",
-
-	"($IND)",
-	"$ABS",
-	"$ABS,X",
-	"$ABS,Y",
-};
-
 
 struct Arg {
 	Arg(AdressingMode am = BAD, int val = -1) : mode(am), val(val) {}
@@ -83,7 +59,7 @@ int assembleLine(const std::string &line, uint8_t *output, int pc) {
 		Arg a;
 		if(matches[4] != "") {
 			a = parse(matches[4]);
-			printf("ARG is %s %x\n", modeNames[a.mode].c_str(), a.val);
+			//printf("ARG is %s %x\n", modeNames[a.mode].c_str(), a.val);
 		} else {
 			a.mode = NONE;
 		}
