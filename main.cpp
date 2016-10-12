@@ -43,7 +43,9 @@ int main(int argc, char **argv)
 	int size = ftell(fp);
 	fseek(fp, 0, SEEK_SET);
 	auto source = std::make_unique<char[]>(size+1);
-	fread(&source[0], 1, size, fp);
+	int rc = fread(&source[0], 1, size, fp);
+	if(rc != size)
+		return -1;
 	source[size] = 0;
 	fclose(fp);
 

@@ -5,9 +5,9 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <cstring>
 #include <unordered_map>
 #include <vector>
-#include <stdexcept>
 
 namespace sixfive {
 
@@ -249,7 +249,7 @@ private:
 		     ((~(a ^ arg) & (a ^ res) & 0x80) >> 1);
 	}
 
-	enum STATUSFLAGS { CARRY, ZERO, IRQ, DECIMAL, BRK, xXx, OVER, SIGN };
+	enum STATUSFLAGS { CARRY, ZERO, IRQ, DECIMAL, BRK, xXx, OVERFLOW, SIGN };
 
 	template <int FLAG, bool v> static void Set(Machine &m) {
 		m.sr = (m.sr & ~(1 << FLAG)) | (v << FLAG);
@@ -645,7 +645,7 @@ public:
 	{ "cli", { { 0x78, 2, NONE, Set<IRQ, false> } } },
 	{ "sed", { { 0xf8, 2, NONE, Set<DECIMAL, true> } } },
 	{ "cld", { { 0xd8, 2, NONE, Set<DECIMAL, false> } } },
-	{ "clv", { { 0xb8, 2, NONE, Set<OVER, false> } } },
+	{ "clv", { { 0xb8, 2, NONE, Set<OVERFLOW, false> } } },
 
 	{ "lsr", { 
 		{ 0x4a, 2, NONE, Lsr<ACC>},
