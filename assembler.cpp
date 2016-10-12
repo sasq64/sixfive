@@ -75,7 +75,7 @@ Arg parse(const std::string &a) {
 	return Arg(mode, v);
 }
 
-int assembleLine(const std::string &line, Word *output, int pc) {
+int assembleLine(const std::string &line, uint8_t *output, int pc) {
 	std::regex line_regex(R"(^(\w+:?)?\s*((\w+)\s*(\S+)?)?\s*(;.*)?$)");
 	std::smatch matches;
 	if(line == "") return 0;
@@ -88,13 +88,9 @@ int assembleLine(const std::string &line, Word *output, int pc) {
 			a.mode = NONE;
 		}
 
-		const auto &opCodes = Machine::GetOpcodes();
-
-		//for(auto &ins : instructionTable) {
-		for(auto & op : opCodes) {
-			//if(ins.name == matches[3]) {
-			if(matches[3] == op.name) {
-				//for(auto &op : ins.opcodes) {
+		for(const auto &ins : Machine<>::getInstructions()) {
+			if(ins.name == matches[3]) {
+				for(auto &op : ins.opcodes) {
 					if(op.mode == ABSY && a.mode == ZPY) {
 						a.mode = ABSY;
 					}
@@ -124,7 +120,7 @@ int assembleLine(const std::string &line, Word *output, int pc) {
 							*output++ = a.val >> 8;
 						return output - saved;
 					};
-			//	}
+				}
 			}
 		}
 	}
@@ -134,7 +130,7 @@ int assembleLine(const std::string &line, Word *output, int pc) {
 /// Assemble given code located at `pc` and write code to `output`.
 /// Returns size in bytes.
 /// (Only simple (MON like) assembly supported)
-int assemble(int pc, Word *output, const std::string &code) {
+int assemble(int pc, uint8_t *output, const std::string &code) {
 	int total = 0;
 	for(const auto &line :  utils::split(code, "\n")) {
 		int rc= assembleLine(line, output, pc);

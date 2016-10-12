@@ -28,7 +28,7 @@ int main(int argc, char **argv)
 
 
 	if(argc >= 2 && strcmp(argv[1], "-t") == 0) {
-		checkCode();
+		checkAllCode();
 		benchmark::Initialize(&argc, argv);
 		benchmark::RunSpecifiedBenchmarks();
 		printf("%d\n", (int)sizeof(int_fast8_t));
@@ -102,7 +102,7 @@ int main(int argc, char **argv)
 
 			return 0;
 		}
-		Word temp[4];
+		uint8_t temp[4];
 		int len = assemble(org, &temp[0], std::string(" ") + op + " " + arg);
 		if(len > 0) {
 			m.writeRam(org, &temp[0], len);
@@ -113,7 +113,7 @@ int main(int argc, char **argv)
 		return len;
 	});
 
-	Word temp[65536];
+	uint8_t temp[65536];
 	int len = maxOrg - 0x1000;
 	if(len > 0) {
 		fp = fopen("dump.dat", "wb");
