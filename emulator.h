@@ -11,6 +11,7 @@
 
 namespace sixfive {
 
+// Adressing modes
 enum AdressingMode {
 	BAD,
 	NONE,
@@ -30,11 +31,6 @@ enum AdressingMode {
 	ABSY
 };
 
-// Registers
-enum REGNAME { NOREG, A, X, Y, SP };
-// Adressing modes
-
-
 template <typename POLICY> struct Machine;
 
 struct DefaultPolicy
@@ -47,12 +43,17 @@ struct DefaultPolicy
 	static constexpr bool StatusOpt = false;
 	static constexpr int MemSize = 65536;
 
-	static inline constexpr bool eachOp(Machine<DefaultPolicy>&) { return false; }
+	static inline constexpr void writeIO(uint16_t adr, uint8_t v) {}
+	static inline constexpr uint8_t readIO(uint16_t adr) { return 0; }
 
+	static inline constexpr bool eachOp(Machine<DefaultPolicy>&) { return false; }
 };
 
 template <typename POLICY = DefaultPolicy> struct Machine
 {
+	enum REGNAME { NOREG, A, X, Y, SP };
+	enum STATUSFLAGS { CARRY, ZERO, IRQ, DECIMAL, BRK, xXx, OVER, SIGN };
+
 
 	using OpFunc = void (*)(Machine &);
 
@@ -60,7 +61,7 @@ template <typename POLICY = DefaultPolicy> struct Machine
 	{
 		Opcode() {}
 		Opcode(int code, int cycles, AdressingMode mode, OpFunc op)
-		    : code(code), cycles(cycles), mode(mode), op(op) {}
+			: code(code), cycles(cycles), mode(mode), op(op) {}
 		uint8_t code;
 		int cycles;
 		AdressingMode mode;
@@ -70,7 +71,7 @@ template <typename POLICY = DefaultPolicy> struct Machine
 	struct Instruction
 	{
 		Instruction(const std::string &name, std::vector<Opcode> ov)
-		    : name(name), opcodes(ov) {}
+			: name(name), opcodes(ov) {}
 		const std::string name;
 		std::vector<Opcode> opcodes;
 	};
@@ -82,13 +83,11 @@ template <typename POLICY = DefaultPolicy> struct Machine
 	uint8_t sp;
 	uint16_t pc;
 
-	uint8_t lastuint8_t;
 	uint8_t *stack;
 	uint8_t mem[POLICY::MemSize];
 	uint32_t cycles;
-	std::unordered_map<uint16_t, std::function<void(Machine &m)>> breaks;
 	Opcode jumpTable[256];
-	std::vector<std::string> opNames;
+	const char* opNames[256];
 
 
 	Machine() { init(); }
@@ -96,25 +95,9 @@ template <typename POLICY = DefaultPolicy> struct Machine
 	Machine(Machine &&op) noexcept = default;
 	Machine &operator=(Machine &&op) noexcept = default;
 
-
-	void init() {
-		sp = 0xff;
-		stack = &mem[0x100];
-		memset(&mem[0], 0, sizeof(mem));
-		cycles = 0;
-		a = x = y;
-		sr = 0x30;
-		opNames.resize(256);
-		for(const auto &i : getInstructions()) {
-			for(const auto &o : i.opcodes) {
-				jumpTable[o.code] = o;
-				opNames[o.code] = i.name;
-			}
-		}
-	}
-
-	void set_break(uint16_t pc, std::function<void(Machine &m)> f) {
-		breaks[pc] = f;
+	POLICY& policy() {
+		static POLICY policy;
+		return policy;
 	}
 
 	void writeRam(uint16_t org, const uint8_t data) { mem[org] = data; }
@@ -160,6 +143,22 @@ template <typename POLICY = DefaultPolicy> struct Machine
 
 private:
 
+	void init() {
+		sp = 0xff;
+		stack = &mem[0x100];
+		memset(&mem[0], 0, sizeof(mem));
+		cycles = 0;
+		a = x = y = 0;
+		sr = 0x30;
+		for(const auto &i : getInstructions()) {
+			for(const auto &o : i.opcodes) {
+				jumpTable[o.code] = o;
+				opNames[o.code] = i.name.c_str();
+			}
+		}
+	}
+
+	// TODO: Add optional support for IO reads by PC
 	inline uint8_t &ReadPC() { return mem[pc++]; }
 
 	uint16_t ReadPCW() {
@@ -184,9 +183,11 @@ private:
 		}
 	}
 
+	/////////////////////////////////////////////////////////////////////////
 	///
-	/// CONDITIONS AND THE STATUS REGISTER
+	/// THE STATUS REGISTER
 	///
+	/////////////////////////////////////////////////////////////////////////
 
 	// S V - b d i Z C
 	// 1 1 0 0 0 0 1 1
@@ -201,34 +202,28 @@ private:
 
 	void set_SZC(int res) {
 		sr = (sr & 0x7c) | (res & 0x80) | (!(res & 0xff) << 1) |
-		     ((res >> 8) & 1);
+			 ((res >> 8) & 1);
 	}
 
 	void set_SZCV(int res, int arg) {
 		sr = (sr & 0x3c) | (res & 0x80) | (!(res&0xff) << 1) | ((res >> 8) & 1) |
-		     ((~(a ^ arg) & (a ^ res) & 0x80) >> 1);
+			 ((~(a ^ arg) & (a ^ res) & 0x80) >> 1);
 	}
 
-	enum STATUSFLAGS { CARRY, ZERO, IRQ, DECIMAL, BRK, xXx, OVER, SIGN };
-
-	template <int FLAG, bool v> static void Set(Machine &m) {
-		m.sr = (m.sr & ~(1 << FLAG)) | (v << FLAG);
+	template <int FLAG> uint8_t mask() {
+		return sr & (1<<FLAG);
 	}
 
 	static constexpr bool SET = true;
 	static constexpr bool CLEAR = false;
 
-	template <int FLAG, bool v> bool Check() { return (bool)(sr & (1 << FLAG)) == v; }
+	template <int FLAG, bool v> bool check() { return (bool)(sr & (1 << FLAG)) == v; }
 
-	//
-	//
-	// MEMORY ACCESS
-	//
-	//
-
-	uint8_t get_io(uint16_t addr) { return getchar(); };
-
-	void put_io(uint16_t addr, uint8_t v) { putchar(v); };
+	/////////////////////////////////////////////////////////////////////////
+	///
+	/// MEMORY ACCESS
+	///
+	/////////////////////////////////////////////////////////////////////////
 
 	// FETCH ADDRESS
 
@@ -242,8 +237,8 @@ private:
 		case ABSX: return ReadPCW() + x;
 		case ABSY: return ReadPCW() + y;
 		case INDX: return (t = ReadPC() + x, mem[t & 0xff] | (mem[(t+1)&0xff]<<8));
-		case INDY: return Read16(ReadPC()) + y;
-		case IND: return Read16(ReadPCW());
+		case INDY: return Read16(ReadPC()) + y; // TODO: Does not wrap on FF
+		case IND: return Read16(ReadPCW()); // TODO: Same
 		default: throw std::exception();
 		};
 	}
@@ -252,16 +247,15 @@ private:
 
 	inline void Write(uint16_t adr, uint8_t v) {
 		if((adr & POLICY::IOMASK) == POLICY::IOBANK)
-			put_io(adr, v);
+			POLICY::writeIO(adr, v);
 		else
 			mem[adr] = v;
 	}
 
 	template <int MODE> inline void Write(uint8_t v) {
 		uint16_t adr = Address<MODE>();
-		if(POLICY::Debug) printf("Write %02x => %04x\n", v, adr);
 		if((adr & POLICY::IOMASK) == POLICY::IOBANK)
-			put_io(adr, v);
+			POLICY::writeIO(adr, v);
 		else
 			mem[adr] = v;
 	}
@@ -270,7 +264,7 @@ private:
 
 	uint8_t Read(uint16_t adr) {
 		if((adr & POLICY::IOMASK) == POLICY::IOBANK)
-			return get_io(adr);
+			return POLICY::readIO(adr);
 		else
 			return mem[adr];
 	}
@@ -280,16 +274,20 @@ private:
 			return ReadPC();
 		uint16_t adr = Address<MODE>();
 		if((adr & POLICY::IOMASK) == POLICY::IOBANK)
-			return get_io(adr);
+			return POLICY::readIO(adr);
 		else
 			return mem[adr];
 	}
 
-	///
+	/////////////////////////////////////////////////////////////////////////
 	///
 	///   OPCODES
 	///
-	///
+	/////////////////////////////////////////////////////////////////////////
+
+	template <int FLAG, bool v> static void Set(Machine &m) {
+		m.sr = (m.sr & ~(1 << FLAG)) | (v << FLAG);
+	}
 
 	template <int REG, int MODE> static void Store(Machine &m) {
 		m.Write<MODE>(m.Reg<REG>());
@@ -302,7 +300,7 @@ private:
 
 	template <int FLAG, bool v> static void Branch(Machine &m) {
 		int8_t diff = m.ReadPC();
-		int d = m.Check<FLAG, v>();
+		int d = m.check<FLAG, v>();
 		m.cycles += d;
 		m.pc += (diff * d);
 	}
@@ -334,7 +332,7 @@ private:
 
 	template <int MODE> static void Sbc(Machine &m) {
 		uint8_t z = (~m.Read<MODE>());
-		int rc = m.a + z + (m.sr & 1);
+		int rc = m.a + z + m.mask<CARRY>(); //(m.sr & 1);
 		m.set_SZCV(rc, z);
 		m.a = rc;
 	}
@@ -429,7 +427,7 @@ public:
 
 	{"nop", {{ 0xea, 2, NONE, [](Machine &) {} }} },
 
-    {"lda", {
+	{"lda", {
 		{ 0xa9, 2, IMM, Load<A, IMM>},
 		{ 0xa5, 2, ZP, Load<A, ZP>},
 		{ 0xb5, 4, ZPX, Load<A, ZPX>},
@@ -440,7 +438,7 @@ public:
 		{ 0xb1, 5, INDY, Load<A, INDY>},
 	} },
 
-    {"ldx", {
+	{"ldx", {
 		{ 0xa2, 2, IMM, Load<X, IMM>},
 		{ 0xa6, 3, ZP, Load<X, ZP>},
 		{ 0xb6, 4, ZPY, Load<X, ZPY>},
@@ -448,7 +446,7 @@ public:
 		{ 0xbe, 4, ABSY, Load<X, ABSY>},
 	} },
 
-    {"ldy", {
+	{"ldy", {
 		{ 0xa0, 2, IMM, Load<Y, IMM>},
 		{ 0xa4, 3, ZP, Load<Y, ZP>},
 		{ 0xb4, 4, ZPX, Load<Y, ZPX>},
@@ -456,7 +454,7 @@ public:
 		{ 0xbc, 4, ABSX, Load<Y, ABSX>},
 	} },
 
-    {"sta", {
+	{"sta", {
 		{ 0x85, 3, ZP, Store<A, ZP>},
 		{ 0x95, 4, ZPX, Store<A, ZPX>},
 		{ 0x8d, 4, ABS, Store<A, ABS>},
@@ -466,26 +464,26 @@ public:
 		{ 0x91, 5, INDY, Store<A, INDY>},
 	} },
 
-    {"stx", {
+	{"stx", {
 		{ 0x86, 3, ZP, Store<X, ZP>},
 		{ 0x96, 4, ZPY, Store<X, ZPY>},
 		{ 0x8e, 4, ABS, Store<X, ABS>},
 	} },
 
-    {"sty", {
+	{"sty", {
 		{ 0x84, 3, ZP, Store<Y, ZP>},
 		{ 0x94, 4, ZPX, Store<Y, ZPX>},
 		{ 0x8c, 4, ABS, Store<Y, ABS>},
 	} },
 
-    {"dec", {
+	{"dec", {
 		{ 0xc6, 5, ZP, Inc<ZP, -1>},
 		{ 0xd6, 6, ZPX, Inc<ZPX, -1>},
 		{ 0xce, 6, ABS, Inc<ABS, -1>},
 		{ 0xde, 7, ABSX, Inc<ABSX, -1>},
 	} },
 
-    {"inc", {
+	{"inc", {
 		{ 0xe6, 5, ZP, Inc<ZP, 1>},
 		{ 0xf6, 6, ZPX, Inc<ZPX, 1>},
 		{ 0xee, 6, ABS, Inc<ABS, 1>},
@@ -657,11 +655,11 @@ public:
 	} },
 
 	{ "rti", {
-		{ 0x40, 2, NONE, [](Machine &m) { 
+		{ 0x40, 6, NONE, [](Machine &m) { 
 			m.set_SR(m.stack[++m.sp]);
 			m.pc = (m.stack[m.sp+1] | (m.stack[m.sp+2]<<8));
 			m.sp += 2;
-		}}
+		} }
 	} },
 
 	{ "brk", {
@@ -670,32 +668,32 @@ public:
 			m.stack[m.sp--] = (m.pc+1) & 0xff; 
 			m.stack[m.sp--] = m.get_SR();
 			m.pc = m.Read16(0xfffe);
-		}}
+		} }
 	} },
 
 	{ "rts", {
-		{ 0x60, 2, NONE, [](Machine &m) {  
+		{ 0x60, 6, NONE, [](Machine &m) {  
 			m.pc = (m.stack[m.sp+1] | (m.stack[m.sp+2]<<8))+1;
 			m.sp += 2;
-		}}
+		} }
 	} },
 
 	{ "jmp", {
 		{ 0x4c, 3, ABS, [](Machine &m) {
 			m.pc = m.ReadPCW();
-	   }},
-		{ 0x6c, 3, IND, [](Machine &m) {
+		} },
+		{ 0x6c, 5, IND, [](Machine &m) {
 			m.pc = m.Read16(m.ReadPCW());
-	   }}
-   	} },
+		} }
+	} },
 
 	{ "jsr", {
-		{ 0x20, 3, ABS, [](Machine &m) {
+		{ 0x20, 6, ABS, [](Machine &m) {
 			m.stack[m.sp--] = (m.pc+1) >> 8;
 			m.stack[m.sp--] = (m.pc+1) & 0xff; 
 			m.pc = m.ReadPCW();
-	   }}
-   	} },
+		} }
+	} },
 
 	};
 		return instructionTable;

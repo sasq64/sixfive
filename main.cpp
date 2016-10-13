@@ -52,15 +52,8 @@ bool parse(const std::string &code,
 
 
 
-struct DebugPolicy
+struct DebugPolicy : public sixfive::DefaultPolicy
 {
-	static constexpr uint16_t IOMASK = 0; // 0xff00;
-	static constexpr uint16_t IOBANK = 0xffff;
-
-	static constexpr bool Debug = false;
-	static constexpr bool AlignReads = false;
-	static constexpr bool StatusOpt = false;
-	static constexpr int MemSize = 65536;
 
 	static void checkEffect(sixfive::Machine<DebugPolicy> &m) {
 		static sixfive::Machine<DebugPolicy> om;
@@ -94,7 +87,13 @@ struct DebugPolicy
 		om.sp = m.sp;
 	}
 
-	static bool eachOp(sixfive::Machine<DebugPolicy> &m) {
+	std::unordered_map<uint16_t, std::function<void(sixfive::Machine<DebugPolicy> &m)>> breaks;
+
+	void set_break(uint16_t pc, std::function<void(sixfive::Machine<DebugPolicy> &m)> f) {
+		breaks[pc] = f;
+	}
+
+	 static bool eachOp(sixfive::Machine<DebugPolicy> &m) {
 		static int lastpc = -1;
 		checkEffect(m);
 		if(m.pc == lastpc) {
@@ -104,8 +103,21 @@ struct DebugPolicy
 		lastpc = m.pc;
 		return false;
 	}
-
 };
+
+struct CheckPolicy : public sixfive::DefaultPolicy
+{
+	 static bool eachOp(sixfive::Machine<CheckPolicy> &m) {
+		static int lastpc = -1;
+		if(m.pc == lastpc) {
+			printf("STALL\n");
+			return true;
+		}
+		lastpc = m.pc;
+		return false;
+	}
+};
+
 
 int main(int argc, char **argv)
 {
@@ -120,19 +132,18 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
-	Machine<DebugPolicy> m;
-	m.init();
-
 	if(argc >= 2 && strcmp(argv[1], "-X") == 0) {
 		utils::File f { "6502test.bin" };
 		auto data = f.readAll();
 		data[0x3af8] = 0x60;
+		Machine<CheckPolicy> m;
 		m.writeRam(0, &data[0], 0x10000);
 		m.setPC(0x1000);
 		m.run(1000000000);
 		return 0;
 	}
 
+	Machine<DebugPolicy> m;
 
 	FILE *fp = fopen(argv[1], "rb");
 	fseek(fp, 0, SEEK_END);
@@ -176,7 +187,7 @@ int main(int argc, char **argv)
 				printf("%s must be %02x\n", what.c_str(), v);
 				reqs.push_back(std::make_pair(w,v));
 			}
-			m.set_break(org, [=](Machine<DebugPolicy> &m) {
+			m.policy().set_break(org, [=](Machine<DebugPolicy> &m) {
 					
 					//printf("Break at %04x\n", m.getPC());
 					printf("Break\n");
