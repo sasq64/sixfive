@@ -5,6 +5,6 @@
 
 namespace sixfive {
 
-int assemble(int pc, Word *output, const std::string &code);
+int assemble(int pc, uint8_t *output, const std::string &code);
 
 };

@@ -2,10 +2,36 @@
 #include "assembler.h"
 
 #include <coreutils/utils.h>
+#include <coreutils/file.h>
 
 #include <functional>
 #include <unordered_map>
 #include <tuple>
+
+constexpr static const char* modeNames[] = { 
+	"ILLEGAL",
+	"NONE",
+	"ACC",
+
+	"SIZE2",
+
+	"#IMM",
+	"REL",
+
+	"$ZP",
+	"$ZP,X",
+	"$ZP,Y",
+	"$(ZP,X)",
+	"$(ZP),Y",
+
+	"SIZE3",
+
+	"($IND)",
+	"$ABS",
+	"$ABS,X",
+	"$ABS,Y",
+};
+
 
 class run_exception : public std::exception
 {
@@ -22,28 +48,111 @@ bool parse(const std::string &code,
 
 #include <benchmark/benchmark.h>
 
+
+
+
+
+struct DebugPolicy : public sixfive::DefaultPolicy
+{
+
+	static void checkEffect(sixfive::Machine<DebugPolicy> &m) {
+		static sixfive::Machine<DebugPolicy> om;
+		printf("[ ");
+		if(om.pc != m.pc)
+			printf("PC := %04x ", (unsigned)m.pc);
+		if(om.a != m.a)
+			printf("A := %02x ", m.a);
+		if(om.x != m.x)
+			printf("X := %02x ", m.x);
+		if(om.y != m.y)
+			printf("Y := %02x ", m.y);
+		if(om.sr != m.sr)
+			printf("SR := %02x ", m.sr);
+		if(om.sp != m.sp)
+			printf("SP := %02x ", m.sp);
+		printf("]\n");
+		for(int i = 0; i < 65536; i++)
+			if(m.mem[i] != om.mem[i]) {
+				printf("%04x := %02x ", i, m.mem[i] & 0xff);
+				om.mem[i] = m.mem[i];
+			}
+		puts("");
+
+		om.a = m.a;
+		om.x = m.x;
+		om.y = m.y;
+		om.sp = m.sp;
+		om.sr = m.sr;
+		om.pc = m.pc;
+		om.sp = m.sp;
+	}
+
+	std::unordered_map<uint16_t, std::function<void(sixfive::Machine<DebugPolicy> &m)>> breaks;
+
+	void set_break(uint16_t pc, std::function<void(sixfive::Machine<DebugPolicy> &m)> f) {
+		breaks[pc] = f;
+	}
+
+	 static bool eachOp(sixfive::Machine<DebugPolicy> &m) {
+		static int lastpc = -1;
+		checkEffect(m);
+		if(m.pc == lastpc) {
+			printf("STALL\n");
+			return true;
+		}
+		lastpc = m.pc;
+		return false;
+	}
+};
+
+struct CheckPolicy : public sixfive::DefaultPolicy
+{
+	 static bool eachOp(sixfive::Machine<CheckPolicy> &m) {
+		static int lastpc = -1;
+		if(m.pc == lastpc) {
+			printf("STALL\n");
+			return true;
+		}
+		lastpc = m.pc;
+		return false;
+	}
+};
+
+
 int main(int argc, char **argv)
 {
 	using namespace sixfive;
 
 
 	if(argc >= 2 && strcmp(argv[1], "-t") == 0) {
-		checkCode();
+		checkAllCode();
 		benchmark::Initialize(&argc, argv);
 		benchmark::RunSpecifiedBenchmarks();
 		printf("%d\n", (int)sizeof(int_fast8_t));
 		return 0;
 	}
 
-	Machine m;
-	m.init();
+	if(argc >= 2 && strcmp(argv[1], "-X") == 0) {
+		utils::File f { "6502test.bin" };
+		auto data = f.readAll();
+		data[0x3af8] = 0x60;
+		Machine<CheckPolicy> m;
+		m.writeRam(0, &data[0], 0x10000);
+		m.setPC(0x1000);
+		m.run(1000000000);
+		return 0;
+	}
+
+	Machine<DebugPolicy> m;
 
 	FILE *fp = fopen(argv[1], "rb");
 	fseek(fp, 0, SEEK_END);
 	int size = ftell(fp);
 	fseek(fp, 0, SEEK_SET);
 	auto source = std::make_unique<char[]>(size+1);
-	fread(&source[0], 1, size, fp);
+	int rc = fread(&source[0], 1, size, fp);
+	if(rc != size)
+		return -1;
 	source[size] = 0;
 	fclose(fp);
 
@@ -78,7 +187,7 @@ int main(int argc, char **argv)
 				printf("%s must be %02x\n", what.c_str(), v);
 				reqs.push_back(std::make_pair(w,v));
 			}
-			m.set_break(org, [=](Machine &m) {
+			m.policy().set_break(org, [=](Machine<DebugPolicy> &m) {
 					
 					//printf("Break at %04x\n", m.getPC());
 					printf("Break\n");
@@ -102,7 +211,7 @@ int main(int argc, char **argv)
 
 			return 0;
 		}
-		Word temp[4];
+		uint8_t temp[4];
 		int len = assemble(org, &temp[0], std::string(" ") + op + " " + arg);
 		if(len > 0) {
 			m.writeRam(org, &temp[0], len);
@@ -113,7 +222,7 @@ int main(int argc, char **argv)
 		return len;
 	});
 
-	Word temp[65536];
+	uint8_t temp[65536];
 	int len = maxOrg - 0x1000;
 	if(len > 0) {
 		fp = fopen("dump.dat", "wb");
@@ -129,7 +238,7 @@ int main(int argc, char **argv)
 	//return 0;
 	m.setPC(0x01000);
 	//m.pc = 0x1000;
-	m.run(1000);
+	m.run(100000);
 
 	//printf("%02x\n", m.mem[0x2000]);
 	return 0;

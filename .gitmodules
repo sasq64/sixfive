@@ -1,0 +1,3 @@
+[submodule "zyan-disassembler-engine"]
+	path = zyan-disassembler-engine
+	url = https://github.com/zyantific/zyan-disassembler-engine.git

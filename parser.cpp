@@ -1,4 +1,3 @@
-
 #include <boost/spirit.hpp>
 //#include <boost/spirit/dynamic/if.hpp>
 #include <boost/spirit/iterator/position_iterator.hpp>
@@ -169,8 +168,12 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 				state.org += len;
 		};
 
-		Fn fmetaline = [=](auto, auto) {
-			grammar.encode(state.org, symbolName, argExp);
+		Fn fmetaline = [=](auto b, auto) {
+			int len = grammar.encode(state.org, symbolName, argExp);
+			if(len < 0)
+				throw_(b, std::string("Error"));
+			else
+				state.org += len;
 		};
 
 		Fn femptyline = [=](auto, auto) {
@@ -188,10 +191,14 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 
 		std::vector<uint8_t> data;
 
-		Fn fdataline = [=](auto, auto) {
+		Fn fdataline = [=](auto b, auto) {
 			if(data.size() > 0) {
 				//printf("DATA\n");
-				grammar.encode(state.org, "b", std::string((const char*)&data[0], data.size())); 
+				int len = grammar.encode(state.org, "b", std::string((const char*)&data[0], data.size())); 
+				if(len < 0)
+					throw_(b, std::string("Error"));
+				else
+					state.org += len;
 				data.clear();
 			}
 		};

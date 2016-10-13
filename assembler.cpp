@@ -5,36 +5,14 @@
 
 namespace sixfive {
 
-const static std::string modeNames[] = { 
-	"ILLEGAL",
-	"NONE",
-	"ACC",
-
-	"SIZE2",
-
-	"#IMM",
-	"REL",
-
-	"$ZP",
-	"$ZP,X",
-	"$ZP,Y",
-	"$(ZP,X)",
-	"$(ZP),Y",
-
-	"SIZE3",
-
-	"($IND)",
-	"$ABS",
-	"$ABS,X",
-	"$ABS,Y",
-};
-
 
 struct Arg {
 	Arg(AdressingMode am = BAD, int val = -1) : mode(am), val(val) {}
 	AdressingMode mode;
 	int val;
 };
+
+
 
 Arg parse(const std::string &a) {
 	const static std::regex arg_regex(R"(^\(?(#?)(\$?)(\w*)(,[xy])?(\)?)(,y)?)");
@@ -73,7 +51,7 @@ Arg parse(const std::string &a) {
 	return Arg(mode, v);
 }
 
-int assembleLine(const std::string &line, Word *output, int pc) {
+int assembleLine(const std::string &line, uint8_t *output, int pc) {
 	std::regex line_regex(R"(^(\w+:?)?\s*((\w+)\s*(\S+)?)?\s*(;.*)?$)");
 	std::smatch matches;
 	if(line == "") return 0;
@@ -81,12 +59,12 @@ int assembleLine(const std::string &line, Word *output, int pc) {
 		Arg a;
 		if(matches[4] != "") {
 			a = parse(matches[4]);
-			printf("ARG is %s %x\n", modeNames[a.mode].c_str(), a.val);
+			//printf("ARG is %s %x\n", modeNames[a.mode].c_str(), a.val);
 		} else {
 			a.mode = NONE;
 		}
 
-		for(auto &ins : instructionTable) {
+		for(const auto &ins : Machine<>::getInstructions()) {
 			if(ins.name == matches[3]) {
 				for(auto &op : ins.opcodes) {
 					if(op.mode == ABSY && a.mode == ZPY) {
@@ -128,7 +106,7 @@ int assembleLine(const std::string &line, Word *output, int pc) {
 /// Assemble given code located at `pc` and write code to `output`.
 /// Returns size in bytes.
 /// (Only simple (MON like) assembly supported)
-int assemble(int pc, Word *output, const std::string &code) {
+int assemble(int pc, uint8_t *output, const std::string &code) {
 	int total = 0;
 	for(const auto &line :  utils::split(code, "\n")) {
 		int rc= assembleLine(line, output, pc);
