@@ -97,7 +97,7 @@ struct DebugPolicy : public sixfive::DefaultPolicy
 		static int lastpc = -1;
 		checkEffect(m);
 		if(m.pc == lastpc) {
-			printf("STALL\n");
+			printf("STALL @ %04x\n", lastpc);
 			return true;
 		}
 		lastpc = m.pc;
@@ -110,7 +110,7 @@ struct CheckPolicy : public sixfive::DefaultPolicy
 	 static bool eachOp(sixfive::Machine<CheckPolicy> &m) {
 		static int lastpc = -1;
 		if(m.pc == lastpc) {
-			printf("STALL\n");
+			printf("STALL @ %04x\n", lastpc);
 			return true;
 		}
 		lastpc = m.pc;

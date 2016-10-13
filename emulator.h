@@ -8,6 +8,7 @@
 #include <cstring>
 #include <unordered_map>
 #include <vector>
+#include <tuple>
 
 namespace sixfive {
 
@@ -60,6 +61,7 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
 
 
 	using OpFunc = void (*)(Machine &);
+	using Hilo = std::pair<uint8_t, uint8_t>;
 
 	struct Opcode
 	{
@@ -89,10 +91,12 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
 
 	uint8_t *stack;
 	uint8_t mem[POLICY::MemSize];
+	uint8_t *mem2[256];
 	uint32_t cycles;
 	Opcode jumpTable[256];
 	const char* opNames[256];
 
+	bool doQuit = false;
 
 	Machine() { init(); }
 	~Machine() = default;
@@ -129,19 +133,20 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
 
 		auto toCycles = cycles + runc;
 		uint32_t opcodes = 0;
-		while(cycles < toCycles) {
+		while(!doQuit && cycles < toCycles) {
 
 			if(POLICY::eachOp(*this))
 				break;
 
 			uint8_t code = ReadPC();
-			if(code == 0x60 && (uint8_t)sp == 0xff)
-				return opcodes;
+			//if(code == 0x60 && (uint8_t)sp == 0xff)
+			//	return opcodes;
 			auto &op = jumpTable[code];
 			op.op(*this);
 			cycles += op.cycles;
 			opcodes++;
 		}
+		doQuit = false;
 		return opcodes;
 	}
 
@@ -154,6 +159,8 @@ private:
 		cycles = 0;
 		a = x = y = 0;
 		sr = 0x30;
+		for(int i=0; i<256; i++)
+			mem2[i] = &mem[i*256];
 		for(const auto &i : getInstructions()) {
 			for(const auto &o : i.opcodes) {
 				jumpTable[o.code] = o;
@@ -230,57 +237,79 @@ private:
 	/////////////////////////////////////////////////////////////////////////
 
 	// FETCH ADDRESS
+	//
 
-	template <int MODE> uint16_t Address() {
-		int t;
+	Hilo hilo(uint8_t lo, uint8_t hi = 0) {
+		return std::make_pair(lo, hi);
+	}
+
+	uint8_t readPC() {
+		pc++;
+		return mem2[pc>>8][pc&0xff];
+	}
+
+	uint8_t Read(Hilo adr) {
+		if((adr.second & POLICY::IOMASK) == POLICY::IOBANK)
+			return POLICY::readIO(*this, adr.first | (adr.second<<8));
+		else
+			return mem2[adr.second][adr.first];
+	}
+
+	uint8_t Read(uint8_t lo, uint8_t hi) {
+		if((hi & POLICY::IOMASK) == POLICY::IOBANK)
+			return POLICY::readIO(*this, lo | (hi<<8));
+		else
+			return mem2[hi][lo];
+	}
+
+	template <int MODE> Hilo Address() {
+		uint8_t t;
+		int r,s;
+		//uint8_t *mem = &mem2[0][0];
 		switch(MODE) {
-		case ZP: return ReadPC();
-		case ZPX: return (ReadPC() + x) & 0xff;
-		case ZPY: return (ReadPC() + y) & 0xff;
-		case ABS: return ReadPCW();
-		case ABSX: return ReadPCW() + x;
-		case ABSY: return ReadPCW() + y;
-		case INDX: return (t = ReadPC() + x, mem[t & 0xff] | (mem[(t+1)&0xff]<<8));
-		case INDY: return Read16(ReadPC()) + y; // TODO: Does not wrap on FF
-		case IND: return Read16(ReadPCW()); // TODO: Same
+		case ZP: return hilo(ReadPC());
+		case ZPX: return hilo(ReadPC() + x);
+		case ZPY: return hilo(ReadPC() + y);
+		case ABS: pc += 2; return hilo(mem[pc-2], mem[pc-1]);
+		case ABSX: r = ReadPC() + x; s = r>>8; return hilo(r, ReadPC()+s);
+		case ABSY: r = ReadPC() + y; s = r>>8; return hilo(r, ReadPC()+s);
+		case INDX : t = ReadPC() + x; return hilo(mem[t], mem[t+1]);
+		case INDY : t = ReadPC(); r = mem[t] + y; return hilo(r, mem[t+1] + (r>>8));
+		case IND : pc += 2; return hilo(mem[pc-2], mem[pc-1]);
 		default: throw std::exception();
 		};
 	}
-
 	// WRITE MEMORY
 
-	inline void Write(uint16_t adr, uint8_t v) {
-		if((adr & POLICY::IOMASK) == POLICY::IOBANK)
-			POLICY::writeIO(*this, adr, v);
+	inline void Write(Hilo adr, uint8_t v) {
+		if((adr.second & POLICY::IOMASK) == POLICY::IOBANK)
+			POLICY::writeIO(*this, adr.first | (adr.second<<8), v);
 		else
-			mem[adr] = v;
+			mem2[adr.second][adr.first] = v;
 	}
 
 	template <int MODE> inline void Write(uint8_t v) {
-		uint16_t adr = Address<MODE>();
-		if((adr & POLICY::IOMASK) == POLICY::IOBANK)
-			POLICY::writeIO(*this, adr, v);
-		else
-			mem[adr] = v;
+		//uint16_t adr = Address<MODE>();
+		auto adr = Address<MODE>();
+		//if((adr.second & POLICY::IOMASK) == POLICY::IOBANK)
+		//	POLICY::writeIO(*this, adr.first | (adr.second<<8), v);
+		//else
+		//printf("Writing to %02x %02x\n", hilo.second, hilo.first);
+			mem2[adr.second][adr.first] = v;
 	}
 
 	// READ MEMORY
 
-	uint8_t Read(uint16_t adr) {
-		if((adr & POLICY::IOMASK) == POLICY::IOBANK)
-			return POLICY::readIO(*this, adr);
-		else
-			return mem[adr];
-	}
-
 	template <int MODE> uint8_t Read() {
 		if(MODE == IMM)
 			return ReadPC();
-		uint16_t adr = Address<MODE>();
-		if((adr & POLICY::IOMASK) == POLICY::IOBANK)
-			return POLICY::readIO(*this, adr);
-		else
-			return mem[adr];
+		//uint16_t adr = Address<MODE>();
+		//if((adr.second & POLICY::IOMASK) == POLICY::IOBANK)
+		//	return POLICY::readIO(*this, adr.first | (adr.second<<8));
+		//else
+			//return mem[adr];
+		auto hilo = Address<MODE>();
+		return mem2[hilo.second][hilo.first];
 	}
 
 	/////////////////////////////////////////////////////////////////////////
@@ -678,6 +707,8 @@ public:
 
 	{ "rts", {
 		{ 0x60, 6, NONE, [](Machine &m) {  
+			if(m.sp == 0xff)
+				m.doQuit = true;
 			m.pc = (m.stack[m.sp+1] | (m.stack[m.sp+2]<<8))+1;
 			m.sp += 2;
 		} }
