@@ -49,7 +49,7 @@ bool parse(const std::string &code,
 #include <benchmark/benchmark.h>
 
 
-
+// sixfive -s <source> -io [c64|simple|none] -break [adr] -trace
 
 
 struct DebugPolicy : public sixfive::DefaultPolicy
@@ -119,6 +119,15 @@ struct CheckPolicy : public sixfive::DefaultPolicy
 };
 
 
+struct IOPolicy : public sixfive::DefaultPolicy {
+	static constexpr uint16_t IOMASK = 0xff00;
+	static constexpr uint16_t IOBANK = 0xff00;
+	static inline constexpr void writeIO(sixfive::Machine<IOPolicy> &m, uint16_t adr, uint8_t v) {
+	}
+	static inline constexpr uint8_t readIO(sixfive::Machine<IOPolicy> &m, uint16_t adr) { return 0; }
+};
+
+
 int main(int argc, char **argv)
 {
 	using namespace sixfive;
@@ -143,22 +152,16 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
+	Machine<IOPolicy> mm2;
+
 	Machine<DebugPolicy> m;
 
-	FILE *fp = fopen(argv[1], "rb");
-	fseek(fp, 0, SEEK_END);
-	int size = ftell(fp);
-	fseek(fp, 0, SEEK_SET);
-	auto source = std::make_unique<char[]>(size+1);
-	int rc = fread(&source[0], 1, size, fp);
-	if(rc != size)
-		return -1;
-	source[size] = 0;
-	fclose(fp);
+	utils::File f { argv[1] };
+	auto src = f.readAll();
+	auto srcText = std::string((char*)&src[0], src.size());
 
-	//std::unordered_map<uint16_t, std::string> reqs;
 	int maxOrg = 0;
-	bool ok = parse(&source[0], [&](uint16_t org, const std::string &op, const std::string &arg) -> int {
+	bool ok = parse(srcText, [&](uint16_t org, const std::string &op, const std::string &arg) -> int {
 		if(op == "b") {
 			//memcpy(&m.mem[org], &arg[0], arg.size());
 			for(int i=0; i<(int)arg.size(); i++)
@@ -222,24 +225,20 @@ int main(int argc, char **argv)
 		return len;
 	});
 
-	uint8_t temp[65536];
 	int len = maxOrg - 0x1000;
 	if(len > 0) {
-		fp = fopen("dump.dat", "wb");
+		uint8_t temp[65536];
 		m.readRam(0x1000, temp, len);
-		fwrite(temp, 1, len, fp);
-		fclose(fp);
+		utils::File f { "dump.dat" };
+		f.write(temp, len);
 	}
 
 	if(!ok) {
 		printf("Parse failed\n");
 		return -1;
 	}
-	//return 0;
-	m.setPC(0x01000);
-	//m.pc = 0x1000;
-	m.run(100000);
 
-	//printf("%02x\n", m.mem[0x2000]);
+	m.setPC(0x01000);
+	m.run(100000);
 	return 0;
 }

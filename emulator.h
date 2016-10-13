@@ -31,6 +31,8 @@ enum AdressingMode {
 	ABSY
 };
 
+struct BaseM {};
+
 template <typename POLICY> struct Machine;
 
 struct DefaultPolicy
@@ -43,13 +45,15 @@ struct DefaultPolicy
 	static constexpr bool StatusOpt = false;
 	static constexpr int MemSize = 65536;
 
-	static inline constexpr void writeIO(uint16_t adr, uint8_t v) {}
-	static inline constexpr uint8_t readIO(uint16_t adr) { return 0; }
+	static inline constexpr void writeIO(BaseM&, uint16_t adr, uint8_t v) {}
+	static inline constexpr uint8_t readIO(BaseM&, uint16_t adr) { return 0; }
 
-	static inline constexpr bool eachOp(Machine<DefaultPolicy>&) { return false; }
+	static inline constexpr bool eachOp(BaseM&) { return false; }
 };
 
-template <typename POLICY = DefaultPolicy> struct Machine
+
+
+template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
 {
 	enum REGNAME { NOREG, A, X, Y, SP };
 	enum STATUSFLAGS { CARRY, ZERO, IRQ, DECIMAL, BRK, xXx, OVER, SIGN };
@@ -247,7 +251,7 @@ private:
 
 	inline void Write(uint16_t adr, uint8_t v) {
 		if((adr & POLICY::IOMASK) == POLICY::IOBANK)
-			POLICY::writeIO(adr, v);
+			POLICY::writeIO(*this, adr, v);
 		else
 			mem[adr] = v;
 	}
@@ -255,7 +259,7 @@ private:
 	template <int MODE> inline void Write(uint8_t v) {
 		uint16_t adr = Address<MODE>();
 		if((adr & POLICY::IOMASK) == POLICY::IOBANK)
-			POLICY::writeIO(adr, v);
+			POLICY::writeIO(*this, adr, v);
 		else
 			mem[adr] = v;
 	}
@@ -264,7 +268,7 @@ private:
 
 	uint8_t Read(uint16_t adr) {
 		if((adr & POLICY::IOMASK) == POLICY::IOBANK)
-			return POLICY::readIO(adr);
+			return POLICY::readIO(*this, adr);
 		else
 			return mem[adr];
 	}
@@ -274,7 +278,7 @@ private:
 			return ReadPC();
 		uint16_t adr = Address<MODE>();
 		if((adr & POLICY::IOMASK) == POLICY::IOBANK)
-			return POLICY::readIO(adr);
+			return POLICY::readIO(*this, adr);
 		else
 			return mem[adr];
 	}
@@ -340,7 +344,7 @@ private:
 	template <int MODE> static void Adc(Machine &m) {
 		auto z = m.Read<MODE>();
 
-		int rc = m.a + z + (m.sr & 1);
+		int rc = m.a + z + m.mask<CARRY>();
 		m.set_SZCV(rc, z);
 		m.a = rc;
 	}
@@ -409,13 +413,13 @@ private:
 
 	template <int MODE> static void Rol(Machine &m) {
 		auto adr = m.Address<MODE>();
-		int rc = (m.Read(adr) << 1) | (m.sr & 1);
+		int rc = (m.Read(adr) << 1) | m.mask<CARRY>();
 		m.Write(adr, rc);
 		m.set_SZC(rc);
 	}
 
 	static void RolA(Machine &m) {
-		int rc = (m.a << 1) | (m.sr & 1);
+		int rc = (m.a << 1) | m.mask<CARRY>();
 		m.set_SZC(rc);
 		m.a = rc;
 	}
@@ -664,8 +668,9 @@ public:
 
 	{ "brk", {
 		{ 0x00, 7, NONE, [](Machine &m) {  
-			m.stack[m.sp--] = (m.pc+1) >> 8;
-			m.stack[m.sp--] = (m.pc+1) & 0xff; 
+			m.ReadPC();
+			m.stack[m.sp--] = m.pc >> 8;
+			m.stack[m.sp--] = m.pc & 0xff; 
 			m.stack[m.sp--] = m.get_SR();
 			m.pc = m.Read16(0xfffe);
 		} }
