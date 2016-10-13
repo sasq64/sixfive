@@ -1,5 +1,6 @@
 
 #include "assembler.h"
+#include "emulator.h"
 #include <coreutils/utils.h>
 #include <regex>
 

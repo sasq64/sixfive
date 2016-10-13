@@ -1,6 +1,5 @@
 #pragma once
 
-#include "emulator.h"
 #include <string>
 
 namespace sixfive {

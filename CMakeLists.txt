@@ -3,9 +3,9 @@ project(sixfive)
 
 set(SOURCE_FILES
 main.cpp
-emulator.cpp
 assembler.cpp
 parser.cpp
+tests.cpp
 ../apone/mods/coreutils/file.cpp
 )
 

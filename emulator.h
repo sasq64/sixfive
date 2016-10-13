@@ -705,6 +705,4 @@ public:
 	}
 };
 
-void checkAllCode();
-
 } // namespace

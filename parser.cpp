@@ -12,6 +12,8 @@
 
 using namespace boost::spirit;
 
+namespace sixfive {
+
 struct AsmState
 {
 	std::unordered_map<std::string, double> symbols;
@@ -340,3 +342,5 @@ bool parse(const std::string &code,
 	}
 	//return result.full;
 }
+
+} // namespace
