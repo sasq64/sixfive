@@ -99,7 +99,11 @@ struct CheckPolicy : public sixfive::DefaultPolicy
 	 static bool eachOp(sixfive::Machine<CheckPolicy> &m) {
 		static int lastpc = -1;
 		if(m.pc == lastpc) {
-			printf("STALL\n");
+			printf("STALL @ %04x A %02x X %02x Y %02x SR %02x SP %02x\n", lastpc, m.a, m.x, m.y,m.sr, m.sp);
+			for(int i=0; i<256; i++)
+				printf("%02x ", m.stack[i]);
+			printf("\n");
+
 			return true;
 		}
 		lastpc = m.pc;

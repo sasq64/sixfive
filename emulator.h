@@ -35,13 +35,45 @@ struct BaseM {};
 
 template <typename POLICY> struct Machine;
 
+struct HILO {
+	HILO() {}
+	HILO(uint8_t lo, uint8_t hi) : lo(lo), hi(hi) {}
+	HILO(uint16_t a) : lo(a&0xff), hi(a>>8) {}
+	HILO(const HILO &h) : lo(h.lo), hi(h.hi) {}
+	HILO(HILO &&op) noexcept = default;
+	HILO &operator=(HILO &&op) noexcept = default;
+	HILO &operator=(const HILO &h) noexcept {
+		lo = h.lo;
+		hi = h.hi;
+		return *this;
+	}
+
+	uint8_t lo; uint8_t hi;
+	operator uint16_t() const { return lo | (hi<<8); }
+	HILO& operator++() {
+		lo++;
+		hi += !lo;
+		return *this;
+	}
+
+	HILO& operator+=(int x) {
+		hi += (lo + x)>>8;
+		lo += x;
+		return *this;
+	};
+};
+
+
 struct DefaultPolicy
 {
-	static constexpr uint16_t IOMASK = 0; // 0xff00;
-	static constexpr uint16_t IOBANK = 0xffff;
+	static constexpr uint16_t IOMASK = 0; // 0xff;
+	static constexpr uint16_t IOBANK = 0xd0;
+
+	static constexpr bool BankedMemory = false;
+	typedef uint16_t AdrType;
+	static constexpr bool AlignReads = false || BankedMemory;
 
 	static constexpr bool Debug = false;
-	static constexpr bool AlignReads = false;
 	static constexpr bool StatusOpt = false;
 	static constexpr int MemSize = 65536;
 
@@ -58,6 +90,7 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
 	enum REGNAME { NOREG, A, X, Y, SP };
 	enum STATUSFLAGS { CARRY, ZERO, IRQ, DECIMAL, BRK, xXx, OVER, SIGN };
 
+	using Adr = typename POLICY::AdrType;
 
 	using OpFunc = void (*)(Machine &);
 
@@ -85,10 +118,12 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
 	uint8_t y;
 	uint8_t sr;
 	uint8_t sp;
-	uint16_t pc;
+	Adr pc;
 
 	uint8_t *stack;
 	uint8_t mem[POLICY::MemSize];
+	uint8_t *memr[256];
+	uint8_t *memw[256];
 	uint32_t cycles;
 	Opcode jumpTable[256];
 	const char* opNames[256];
@@ -137,6 +172,7 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
 			uint8_t code = ReadPC();
 			if(code == 0x60 && (uint8_t)sp == 0xff)
 				return opcodes;
+			//printf("%04x\n", (uint16_t)pc);
 			auto &op = jumpTable[code];
 			op.op(*this);
 			cycles += op.cycles;
@@ -154,6 +190,10 @@ private:
 		cycles = 0;
 		a = x = y = 0;
 		sr = 0x30;
+		if(POLICY::BankedMemory) {
+			for(int i=0; i<256; i++)
+				memr[i] = memw[i] = &mem[i*256];
+		}
 		for(const auto &i : getInstructions()) {
 			for(const auto &o : i.opcodes) {
 				jumpTable[o.code] = o;
@@ -161,24 +201,99 @@ private:
 			}
 		}
 	}
+	
+
+
+	// 16bit address representation
+
+	Adr* tADR = nullptr;
+
+	uint8_t lo(uint16_t a) const { return a & 0xff; }
+	uint8_t hi(uint16_t a) const { return a >> 8; }
+	uint8_t lo(const HILO &a) const { return a.lo; }
+	uint8_t hi(const HILO &a) const { return a.hi; }
+
+	// Create an Adress from lo and hi byte
+	uint16_t make(uint16_t*, uint8_t lo, uint8_t hi = 0, int offs = 0) const {
+		return (lo | (hi<<8)) + offs;
+	}
+	HILO make(HILO*, uint8_t lo, uint8_t hi = 0, int offs = 0) const {
+		int a = lo + offs;
+		return HILO(a, hi + (a>>8));
+	}
+
+	Adr makeAdr(uint8_t lo, uint8_t hi, int offs = 0) const {
+		return make(tADR, lo, hi, offs);
+	}
+
+	const uint8_t& Mem(const HILO &a) const {
+		if(POLICY::BankedMemory)
+			return memr[hi(a)][lo(a)];
+		else
+			return mem[(uint16_t)a];
+	}
+
+	const uint8_t& Mem(const uint16_t &a) const {
+		if(POLICY::BankedMemory)
+			return memr[hi(a)][lo(a)];
+		else
+			return mem[a];
+	}
+
+	const uint8_t& Mem(const uint8_t &lo, const uint8_t &hi) const {
+		if(POLICY::BankedMemory)
+			return memr[hi][lo];
+		else
+			return mem[lo | (hi<<8)];
+	}
+
+	uint8_t& Mem(const HILO &a) {
+		if(POLICY::BankedMemory)
+			return memw[hi(a)][lo(a)];
+		else
+			return mem[(uint16_t)a];
+	}
+
+	uint8_t& Mem(const uint16_t &a) {
+		if(POLICY::BankedMemory)
+			return memw[hi(a)][lo(a)];
+		else
+			return mem[a];
+	}
+
+	uint8_t& Mem(const uint8_t &lo, const uint8_t &hi) {
+		if(POLICY::BankedMemory)
+			return memw[hi][lo];
+		else
+			return mem[lo | (hi<<8)];
+	}
 
 	// TODO: Add optional support for IO reads by PC
-	inline uint8_t &ReadPC() { return mem[pc++]; }
+	inline uint8_t ReadPC() { uint8_t r =  Mem(pc); ++pc; return r; }
 
-	uint16_t ReadPCW() {
-		pc += 2;
-		if(POLICY::AlignReads)
-			return mem[pc - 2] | (mem[pc - 1] << 8);
-		else
-			return *(uint16_t *)&mem[pc - 2];
+	// Read Address from PC, Increment PC
+
+	// TODO: These PC conversion + READ is expsinve in opcode count
+
+	inline Adr ReadPC8(int offs = 0) { 
+		uint8_t r = Mem(pc); ++pc;
+		return make(tADR, r + offs); 
 	}
 
-	inline uint16_t Read16(uint16_t offs) {
-		if(POLICY::AlignReads)
-			return mem[offs] | (mem[offs + 1] << 8);
-		else
-			return *(uint16_t*)&mem[offs];
+	Adr ReadPC16(uint8_t offs = 0) {
+		//pc += 2;
+		if(POLICY::AlignReads) {
+			uint8_t lo = Mem(pc);
+			uint8_t hi = Mem(++pc);
+			++pc;
+			//return make(tADR, Mem(pc), Mem(++pc - ), offs);
+			return make(tADR, lo, hi, offs);
+		} else {
+			pc += 2;
+			return *(uint16_t *)&mem[pc - 2] + offs;
+		}
 	}
+
 	template <int REG> uint8_t &Reg() {
 		switch(REG) {
 		case A: return a;
@@ -229,58 +344,99 @@ private:
 	///
 	/////////////////////////////////////////////////////////////////////////
 
-	// FETCH ADDRESS
+	// Read a new address from the given address
+	inline Adr Read16(uint16_t a, int offs = 0) {
+		if(POLICY::AlignReads)
+			return make(tADR, Mem(a), Mem(a + 1), offs);
+		else
+			return *(uint16_t*)&mem[a] + offs;
+	}
 
-	template <int MODE> uint16_t Address() {
-		int t;
+	inline Adr Read16Wrap(uint16_t a, int offs = 0) {
+		if(POLICY::AlignReads)
+			return make(tADR, Mem(a), Mem( (a + 1) & 0xff), offs);
+		else
+			return *(uint16_t*)&mem[a] + offs;
+	}
+
+	inline Adr Read16(HILO a, int offs = 0) {
+		if(POLICY::AlignReads) {
+			return make(tADR, Mem(a), Mem(a.lo + 1, a.hi + !(~a.lo & 0xff)));
+		} else
+			return *(uint16_t*)&mem[a] + offs;
+	}
+
+	inline Adr Read16Wrap(HILO a, int offs = 0) {
+		if(POLICY::AlignReads) {
+			return make(tADR, Mem(a.lo, 0), Mem((a.lo + 1) & 0xff, 0), offs);
+		} else
+			return *(uint16_t*)&mem[a] + offs;
+	}
+
+
+	uint8_t Read(uint16_t adr) {
+		if((hi(adr) & POLICY::IOMASK) == POLICY::IOBANK)
+			return POLICY::readIO(*this, adr);
+		else
+			return Mem(adr);
+	}
+
+	inline void Write(uint16_t adr, uint8_t v) {
+		if((hi(adr) & POLICY::IOMASK) == POLICY::IOBANK)
+			POLICY::writeIO(*this, adr, v);
+		else
+			Mem(adr) = v;
+	}
+
+	uint8_t Read(HILO adr) {
+		if((hi(adr) & POLICY::IOMASK) == POLICY::IOBANK)
+			return POLICY::readIO(*this, adr);
+		else
+			return Mem(adr);
+	}
+
+	inline void Write(HILO adr, uint8_t v) {
+		if((hi(adr) & POLICY::IOMASK) == POLICY::IOBANK)
+			POLICY::writeIO(*this, adr, v);
+		else
+			Mem(adr) = v;
+	}
+
+	template <int MODE> Adr Address() {
 		switch(MODE) {
-		case ZP: return ReadPC();
-		case ZPX: return (ReadPC() + x) & 0xff;
-		case ZPY: return (ReadPC() + y) & 0xff;
-		case ABS: return ReadPCW();
-		case ABSX: return ReadPCW() + x;
-		case ABSY: return ReadPCW() + y;
-		case INDX: return (t = ReadPC() + x, mem[t & 0xff] | (mem[(t+1)&0xff]<<8));
-		case INDY: return Read16(ReadPC()) + y; // TODO: Does not wrap on FF
-		case IND: return Read16(ReadPCW()); // TODO: Same
+		case ZP: return ReadPC8();
+		case ZPX: return ReadPC8(x);
+		case ZPY: return ReadPC8(y);
+		case ABS: return ReadPC16();
+		case ABSX: return ReadPC16(x);
+		case ABSY: return ReadPC16(y);
+		case INDX: return Read16Wrap(ReadPC8(x) & 0xff);
+		case INDY: return Read16Wrap(ReadPC8(), y);
+		case IND: return Read16(ReadPC16()); // TODO: ZP wrap?
 		default: throw std::exception();
-		};
+		}
 	}
 
 	// WRITE MEMORY
 
-	inline void Write(uint16_t adr, uint8_t v) {
-		if((adr & POLICY::IOMASK) == POLICY::IOBANK)
-			POLICY::writeIO(*this, adr, v);
-		else
-			mem[adr] = v;
-	}
-
 	template <int MODE> inline void Write(uint8_t v) {
-		uint16_t adr = Address<MODE>();
-		if((adr & POLICY::IOMASK) == POLICY::IOBANK)
+		auto adr = Address<MODE>();
+		if((hi(adr) & POLICY::IOMASK) == POLICY::IOBANK)
 			POLICY::writeIO(*this, adr, v);
 		else
-			mem[adr] = v;
+			Mem(adr) = v;
 	}
 
 	// READ MEMORY
 
-	uint8_t Read(uint16_t adr) {
-		if((adr & POLICY::IOMASK) == POLICY::IOBANK)
-			return POLICY::readIO(*this, adr);
-		else
-			return mem[adr];
-	}
-
 	template <int MODE> uint8_t Read() {
 		if(MODE == IMM)
 			return ReadPC();
-		uint16_t adr = Address<MODE>();
-		if((adr & POLICY::IOMASK) == POLICY::IOBANK)
+		Adr adr = Address<MODE>();
+		if((hi(adr) & POLICY::IOMASK) == POLICY::IOBANK)
 			return POLICY::readIO(*this, adr);
 		else
-			return mem[adr];
+			return Mem(adr);
 	}
 
 	/////////////////////////////////////////////////////////////////////////
@@ -298,7 +454,11 @@ private:
 	}
 
 	template <int REG, int MODE> static void Load(Machine &m) {
+
 		m.Reg<REG>() = m.Read<MODE>();
+		//if(MODE == ABSX && m.x > 0) {
+		//	printf("Read %x + %x => %x\n", m.mem[m.pc-2] | (m.mem[m.pc-1]<<8), m.x, m.Reg<REG>());
+		//}
 		m.set_SZ<REG>();
 	}
 
@@ -660,7 +820,7 @@ public:
 
 	{ "rti", {
 		{ 0x40, 6, NONE, [](Machine &m) { 
-			m.set_SR(m.stack[++m.sp]);
+			m.set_SR(m.stack[++m.sp]);// & !(1<<BRK));
 			m.pc = (m.stack[m.sp+1] | (m.stack[m.sp+2]<<8));
 			m.sp += 2;
 		} }
@@ -671,8 +831,9 @@ public:
 			m.ReadPC();
 			m.stack[m.sp--] = m.pc >> 8;
 			m.stack[m.sp--] = m.pc & 0xff; 
-			m.stack[m.sp--] = m.get_SR();
-			m.pc = m.Read16(0xfffe);
+			m.stack[m.sp--] = m.get_SR();// | (1<<BRK);
+			//m.pc = m.Read16((uint16_t)0xfffe);
+			m.pc = m.Read16(m.makeAdr(0xfe, 0xff));
 		} }
 	} },
 
@@ -685,10 +846,13 @@ public:
 
 	{ "jmp", {
 		{ 0x4c, 3, ABS, [](Machine &m) {
-			m.pc = m.ReadPCW();
+			m.pc = m.ReadPC16();
 		} },
 		{ 0x6c, 5, IND, [](Machine &m) {
-			m.pc = m.Read16(m.ReadPCW());
+			auto a = m.ReadPC16();
+			if((uint16_t)a != 0)
+				printf("READ %04x\n", (uint16_t)a);
+			m.pc = m.Read16(a);
 		} }
 	} },
 
@@ -696,7 +860,7 @@ public:
 		{ 0x20, 6, ABS, [](Machine &m) {
 			m.stack[m.sp--] = (m.pc+1) >> 8;
 			m.stack[m.sp--] = (m.pc+1) & 0xff; 
-			m.pc = m.ReadPCW();
+			m.pc = m.ReadPC16();
 		} }
 	} },
 
