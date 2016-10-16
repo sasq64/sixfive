@@ -43,9 +43,7 @@ struct HILO {
 	HILO(HILO &&op) noexcept = default;
 	HILO &operator=(HILO &&op) noexcept = default;
 	HILO &operator=(const HILO &h) noexcept {
-		lo = h.lo;
-		hi = h.hi;
-		return *this;
+		return *this = h;
 	}
 
 	uint8_t lo; uint8_t hi;
@@ -69,7 +67,9 @@ struct DefaultPolicy
 	static constexpr uint16_t IOMASK = 0; // 0xff;
 	static constexpr uint16_t IOBANK = 0xd0;
 
-	static constexpr bool BankedMemory = false;
+	static constexpr bool BankedMemory = true;
+	// Must be convertable and constructable from uin16_t
+	// lo() and hi() functions must extract low and high byte
 	typedef uint16_t AdrType;
 	static constexpr bool AlignReads = false || BankedMemory;
 
@@ -121,9 +121,10 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
 	Adr pc;
 
 	uint8_t *stack;
-	uint8_t mem[POLICY::MemSize];
-	uint8_t *memr[256];
-	uint8_t *memw[256];
+	uint8_t ram[POLICY::MemSize];
+	uint8_t *rbank[POLICY::MemSize / 256];
+	uint8_t *wbank[POLICY::MemSize / 256];
+
 	uint32_t cycles;
 	Opcode jumpTable[256];
 	const char* opNames[256];
@@ -139,19 +140,29 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
 		return policy;
 	}
 
-	void writeRam(uint16_t org, const uint8_t data) { mem[org] = data; }
+	void writeRam(uint16_t org, const uint8_t data) { ram[org] = data; }
 
 	void writeRam(uint16_t org, const uint8_t *data, int size) {
 		for(int i=0; i<size; i++)
-			mem[org+i] = data[i];
+			ram[org+i] = data[i];
 	}
 
 	void readRam(uint16_t org, uint8_t *data, int size) {
 		for(int i=0; i<size; i++)
-			data[i] = mem[org+i];
+			data[i] = ram[org+i];
 	}
 
-	uint8_t readRam(uint16_t org) { return mem[org]; }
+	uint8_t readRam(uint16_t org) { return ram[org]; }
+
+	uint8_t readMem(uint16_t org) { return rbank[org>>8][org&0xff]; }
+
+	void mapRom(uint8_t bank, uint8_t*data, int len) {
+		auto end = data + len;
+		while(data < end) {
+			rbank[bank++] = data;
+			data += 256;
+		}
+	}
 
 	uint8_t regA() { return a; }
 	uint8_t regX() { return x; }
@@ -185,14 +196,14 @@ private:
 
 	void init() {
 		sp = 0xff;
-		stack = &mem[0x100];
-		memset(&mem[0], 0, sizeof(mem));
+		stack = &ram[0x100];
+		memset(&ram[0], 0, sizeof(ram));
 		cycles = 0;
 		a = x = y = 0;
 		sr = 0x30;
 		if(POLICY::BankedMemory) {
 			for(int i=0; i<256; i++)
-				memr[i] = memw[i] = &mem[i*256];
+				rbank[i] = wbank[i] = &ram[i*256];
 		}
 		for(const auto &i : getInstructions()) {
 			for(const auto &o : i.opcodes) {
@@ -226,46 +237,48 @@ private:
 		return make(tADR, lo, hi, offs);
 	}
 
+	// Read/write memory
+
 	const uint8_t& Mem(const HILO &a) const {
 		if(POLICY::BankedMemory)
-			return memr[hi(a)][lo(a)];
+			return rbank[hi(a)][lo(a)];
 		else
-			return mem[(uint16_t)a];
+			return ram[(uint16_t)a];
 	}
 
 	const uint8_t& Mem(const uint16_t &a) const {
 		if(POLICY::BankedMemory)
-			return memr[hi(a)][lo(a)];
+			return rbank[hi(a)][lo(a)];
 		else
-			return mem[a];
+			return ram[a];
 	}
 
 	const uint8_t& Mem(const uint8_t &lo, const uint8_t &hi) const {
 		if(POLICY::BankedMemory)
-			return memr[hi][lo];
+			return rbank[hi][lo];
 		else
-			return mem[lo | (hi<<8)];
+			return ram[lo | (hi<<8)];
 	}
 
 	uint8_t& Mem(const HILO &a) {
 		if(POLICY::BankedMemory)
-			return memw[hi(a)][lo(a)];
+			return wbank[hi(a)][lo(a)];
 		else
-			return mem[(uint16_t)a];
+			return ram[(uint16_t)a];
 	}
 
 	uint8_t& Mem(const uint16_t &a) {
 		if(POLICY::BankedMemory)
-			return memw[hi(a)][lo(a)];
+			return wbank[hi(a)][lo(a)];
 		else
-			return mem[a];
+			return ram[a];
 	}
 
 	uint8_t& Mem(const uint8_t &lo, const uint8_t &hi) {
 		if(POLICY::BankedMemory)
-			return memw[hi][lo];
+			return wbank[hi][lo];
 		else
-			return mem[lo | (hi<<8)];
+			return ram[lo | (hi<<8)];
 	}
 
 	// TODO: Add optional support for IO reads by PC
@@ -290,7 +303,7 @@ private:
 			return make(tADR, lo, hi, offs);
 		} else {
 			pc += 2;
-			return *(uint16_t *)&mem[pc - 2] + offs;
+			return *(uint16_t *)&ram[pc - 2] + offs;
 		}
 	}
 
@@ -349,28 +362,28 @@ private:
 		if(POLICY::AlignReads)
 			return make(tADR, Mem(a), Mem(a + 1), offs);
 		else
-			return *(uint16_t*)&mem[a] + offs;
+			return *(uint16_t*)&ram[a] + offs;
 	}
 
-	inline Adr Read16Wrap(uint16_t a, int offs = 0) {
+	inline Adr Read16ZP(uint8_t a, int offs = 0) {
 		if(POLICY::AlignReads)
 			return make(tADR, Mem(a), Mem( (a + 1) & 0xff), offs);
 		else
-			return *(uint16_t*)&mem[a] + offs;
+			return *(uint16_t*)&ram[a] + offs;
 	}
 
 	inline Adr Read16(HILO a, int offs = 0) {
 		if(POLICY::AlignReads) {
 			return make(tADR, Mem(a), Mem(a.lo + 1, a.hi + !(~a.lo & 0xff)));
 		} else
-			return *(uint16_t*)&mem[a] + offs;
+			return *(uint16_t*)&ram[a] + offs;
 	}
 
-	inline Adr Read16Wrap(HILO a, int offs = 0) {
+	inline Adr Read16ZP(HILO a, int offs = 0) {
 		if(POLICY::AlignReads) {
 			return make(tADR, Mem(a.lo, 0), Mem((a.lo + 1) & 0xff, 0), offs);
 		} else
-			return *(uint16_t*)&mem[a] + offs;
+			return *(uint16_t*)&ram[a] + offs;
 	}
 
 
@@ -410,8 +423,8 @@ private:
 		case ABS: return ReadPC16();
 		case ABSX: return ReadPC16(x);
 		case ABSY: return ReadPC16(y);
-		case INDX: return Read16Wrap(ReadPC8(x) & 0xff);
-		case INDY: return Read16Wrap(ReadPC8(), y);
+		case INDX: return Read16ZP(ReadPC8(x));
+		case INDY: return Read16ZP(ReadPC8(), y);
 		case IND: return Read16(ReadPC16()); // TODO: ZP wrap?
 		default: throw std::exception();
 		}
@@ -457,7 +470,7 @@ private:
 
 		m.Reg<REG>() = m.Read<MODE>();
 		//if(MODE == ABSX && m.x > 0) {
-		//	printf("Read %x + %x => %x\n", m.mem[m.pc-2] | (m.mem[m.pc-1]<<8), m.x, m.Reg<REG>());
+		//	printf("Read %x + %x => %x\n", m.ram[m.pc-2] | (m.ram[m.pc-1]<<8), m.x, m.Reg<REG>());
 		//}
 		m.set_SZ<REG>();
 	}
@@ -586,8 +599,8 @@ private:
 
 public:
 
-	static std::vector<Instruction> &getInstructions() {
-		static std::vector<Instruction> instructionTable = {
+	static const std::vector<Instruction> &getInstructions() {
+		static const std::vector<Instruction> instructionTable = {
 
 	{"nop", {{ 0xea, 2, NONE, [](Machine &) {} }} },
 

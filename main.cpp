@@ -1,5 +1,6 @@
 #include "emulator.h"
 #include "compile.h"
+#include "monitor.h"
 
 #include <coreutils/utils.h>
 #include <coreutils/file.h>
@@ -61,9 +62,9 @@ struct DebugPolicy : public sixfive::DefaultPolicy
 			printf("SP := %02x ", m.sp);
 		printf("]\n");
 		for(int i = 0; i < 65536; i++)
-			if(m.mem[i] != om.mem[i]) {
-				printf("%04x := %02x ", i, m.mem[i] & 0xff);
-				om.mem[i] = m.mem[i];
+			if(m.ram[i] != om.ram[i]) {
+				printf("%04x := %02x ", i, m.ram[i] & 0xff);
+				om.ram[i] = m.ram[i];
 			}
 		puts("");
 
@@ -128,9 +129,31 @@ int main(int argc, char **argv)
 {
 	using namespace sixfive;
 
+	bool doMonitor = false;
+	bool doTest = false;
+	std::string asmFile;
+
+	for(int i=1; i<argc; i++) {
+		if(argv[i][0] == '-') {
+			switch(argv[i][1]) {
+			case 'm':
+				doMonitor = true;
+				break;
+			case 't':
+			   	doTest = true;
+		   		break;	   
+			default:
+				break;
+			}
+		} else
+			asmFile = argv[i];
+
+	}
+
+
 
 	// Run tests
-	if(argc >= 2 && strcmp(argv[1], "-t") == 0) {
+	if(doTest) {
 		checkAllCode();
 		benchmark::Initialize(&argc, argv);
 		benchmark::RunSpecifiedBenchmarks();
@@ -146,13 +169,16 @@ int main(int argc, char **argv)
 
 	Machine<DebugPolicy> m;
 
-	bool ok = compile(argv[1], m);
+
+	bool ok = compile(asmFile, m);
 
 	if(!ok) {
 		printf("Parse failed\n");
 		return -1;
 	}
 
+	if(doMonitor)
+		monitor(m);
 	m.setPC(0x01000);
 	m.run(100000);
 	return 0;
