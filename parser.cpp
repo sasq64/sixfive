@@ -1,3 +1,5 @@
+#include "parser.h"
+
 #include <boost/spirit.hpp>
 //#include <boost/spirit/dynamic/if.hpp>
 #include <boost/spirit/iterator/position_iterator.hpp>
@@ -8,6 +10,7 @@
 #include <stack>
 #include <string>
 #include <cstring>
+#include <memory>
 #include <boost/spirit/error_handling/exceptions.hpp>
 
 using namespace boost::spirit;
@@ -16,10 +19,16 @@ namespace sixfive {
 
 struct AsmState
 {
+	bool isMonitor = false;
 	std::unordered_map<std::string, double> symbols;
 	std::vector<std::string> undefined;
 	uint32_t orgStart = 0x1000;
 	uint32_t org;
+
+	std::string moncmd;
+	std::vector<int> monargs;
+	std::string monstring;
+
 };
 
 typedef position_iterator<char const*> iterator_t;
@@ -77,7 +86,6 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 		std::string argExp;
 		std::string opcodeArg;
 		double expValue;
-
 		struct
 		{
 			bool negate = false;
@@ -113,7 +121,7 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 
 		Fn fsym = [=](auto a, auto b) {
 			std::string s(a, b);
-			printf("SYM '%s'\n", s.c_str());
+			//printf("SYM '%s'\n", s.c_str());
 			if(s == "*" || s == "$") {
 				e.val = state.org;
 				return;
@@ -151,7 +159,7 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 		Fn foparg = [=](auto a, auto b) {
 			std::string arg(a, b);
 
-			printf("Replacing '%s' in '%s' with %d\n", argExp.c_str(), arg.c_str(), (int)expValue);
+			//printf("Replacing '%s' in '%s' with %d\n", argExp.c_str(), arg.c_str(), (int)expValue);
 
 			auto pos = arg.find(argExp);
 			arg.replace(pos, argExp.length(), std::to_string((long long)expValue));
@@ -231,7 +239,16 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 			};
 		};
 
+		Fn Log(const std::string &text) {
+			return [&](iterator_t a, iterator_t b) {
+				printf("%s (%s)\n", text.c_str(), std::string(a, b).c_str());
+			};
+		};
 
+		Fn fmodasm = [=](auto a, auto b) {
+			std::transform(opcodeName.begin(), opcodeName.end(), opcodeName.begin(), ::tolower);
+			state.monstring = opcodeName + " " + opcodeArg;
+		};
 	//	Rule symbol_ap = ch_p('*') | ch_p('$') | lexeme_d[ (ch_p('_') | alpha_p) >> *(ch_p('_') | alnum_p) ] ;
 
 		Rule constant_ap =
@@ -291,8 +308,63 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 
 		Rule mainrule_ap = *(emptyline_ap[femptyline] | dataline_ap[fdataline] | asmline_ap[fasmline] | defline_ap[fdefline] | metaline_ap[fmetaline] );
 
-		Rule const &start() const { return mainrule_ap; }
+		Rule adr_ap = hex_p[push_back_a(state.monargs)];
+		Rule monasmline_ap = ch_p('a')[assign_a(state.moncmd)] >> !adr_ap >> asmcode_ap;
+		Rule monarg_p = hex_p[push_back_a(state.monargs)];
+		Rule moncmd_ap = alpha_p[assign_a(state.moncmd)] >> *monarg_p ; 
+		Rule monline_ap = monasmline_ap[fmodasm] | defline_ap[Log("DEF")] | moncmd_ap; 
+
+		Rule const &start() const {
+			if(state.isMonitor)
+				return monline_ap;
+			else
+				return mainrule_ap; 
+		}
 	};
+};
+
+struct MonParser::Impl {
+	AsmState state;
+	AsmGrammar g;
+	Impl() : g(state) {
+		g.state.isMonitor = true;
+		g.encode = [](uint16_t org, const std::string &op, const std::string &arg) -> int {
+			printf("OP %s at %x\n", op.c_str(), org);
+			return 1;
+		};
+	}
+
+	Command parseLine(const std::string &line) {
+		auto code = line; // (std::string("\n") + line + "\n");
+		iterator_t begin(code.c_str(), code.c_str() + code.length());
+		iterator_t end;
+		state.moncmd = state.monstring = "";
+		state.monargs.clear();
+		auto result = boost::spirit::parse(begin, end, g, blank_p);
+		auto fp = result.stop.get_position();
+		Command c;
+		c.valid = false;
+		if(result.full) {
+			c.valid = true;
+			c.name = state.moncmd;
+			c.args = state.monargs;
+			c.strarg = state.monstring;
+		}
+		return c;
+
+	}
+
+};
+
+MonParser::~MonParser() = default;
+MonParser::MonParser(MonParser &&op) noexcept = default;
+MonParser &MonParser::operator=(MonParser &&op) noexcept = default;
+
+MonParser::MonParser() : impl(std::make_unique<MonParser::Impl>()) {
+};
+
+MonParser::Command MonParser::parseLine(const std::string &line) {
+	return impl->parseLine(line);
 };
 
 bool parse(const std::string &code, 

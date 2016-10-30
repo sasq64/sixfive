@@ -147,10 +147,7 @@ int main(int argc, char **argv)
 			}
 		} else
 			asmFile = argv[i];
-
 	}
-
-
 
 	// Run tests
 	if(doTest) {
@@ -168,7 +165,6 @@ int main(int argc, char **argv)
 	}
 
 	Machine<DebugPolicy> m;
-
 
 	bool ok = compile(asmFile, m);
 

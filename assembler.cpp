@@ -53,20 +53,20 @@ Arg parse(const std::string &a) {
 }
 
 int assembleLine(const std::string &line, uint8_t *output, int pc) {
-	std::regex line_regex(R"(^(\w+:?)?\s*((\w+)\s*(\S+)?)?\s*(;.*)?$)");
+	std::regex line_regex(R"(^\s*(\w+)\s*(\S+)?$)");
 	std::smatch matches;
 	if(line == "") return 0;
 	if(std::regex_match(line, matches, line_regex)) {
 		Arg a;
-		if(matches[4] != "") {
-			a = parse(matches[4]);
+		if(matches[2] != "") {
+			a = parse(matches[2]);
 			//printf("ARG is %s %x\n", modeNames[a.mode].c_str(), a.val);
 		} else {
 			a.mode = NONE;
 		}
 
 		for(const auto &ins : Machine<>::getInstructions()) {
-			if(ins.name == matches[3]) {
+			if(ins.name == matches[1]) {
 				for(auto &op : ins.opcodes) {
 					if(op.mode == ABSY && a.mode == ZPY) {
 						a.mode = ABSY;

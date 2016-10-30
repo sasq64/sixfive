@@ -171,7 +171,7 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
 
 	void setPC(const int16_t &p) { pc = p; }
 
-	uint32_t run(uint32_t runc) {
+	uint32_t run(uint32_t runc = 0x01000000) {
 
 		auto toCycles = cycles + runc;
 		uint32_t opcodes = 0;
@@ -286,7 +286,7 @@ private:
 
 	// Read Address from PC, Increment PC
 
-	// TODO: These PC conversion + READ is expsinve in opcode count
+	// TODO: These PC conversion + READ is expensive in opcode count
 
 	inline Adr ReadPC8(int offs = 0) { 
 		uint8_t r = Mem(pc); ++pc;
