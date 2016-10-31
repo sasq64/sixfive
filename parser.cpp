@@ -1,7 +1,6 @@
 #include "parser.h"
 
 #include <boost/spirit.hpp>
-//#include <boost/spirit/dynamic/if.hpp>
 #include <boost/spirit/iterator/position_iterator.hpp>
 
 #include <unordered_map>
@@ -159,8 +158,6 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 		Fn foparg = [=](auto a, auto b) {
 			std::string arg(a, b);
 
-			//printf("Replacing '%s' in '%s' with %d\n", argExp.c_str(), arg.c_str(), (int)expValue);
-
 			auto pos = arg.find(argExp);
 			arg.replace(pos, argExp.length(), std::to_string((long long)expValue));
 			auto e = std::remove(arg.begin(), arg.end(), ' ');
@@ -311,7 +308,9 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 		Rule adr_ap = hex_p[push_back_a(state.monargs)];
 		Rule monasmline_ap = ch_p('a')[assign_a(state.moncmd)] >> !adr_ap >> asmcode_ap;
 		Rule monarg_p = hex_p[push_back_a(state.monargs)];
-		Rule moncmd_ap = alpha_p[assign_a(state.moncmd)] >> *monarg_p ; 
+		Rule monstrarg_p = lexeme_d[ alpha_p >> *alnum_p ];
+		Rule monname_ap = lexeme_d[ alpha_p >> *alnum_p ];
+		Rule moncmd_ap = monname_ap[assign_a(state.moncmd)] >> ( monstrarg_p[assign_a(state.monstring)] | *monarg_p ); 
 		Rule monline_ap = monasmline_ap[fmodasm] | defline_ap[Log("DEF")] | moncmd_ap; 
 
 		Rule const &start() const {

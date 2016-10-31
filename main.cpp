@@ -47,27 +47,36 @@ struct DebugPolicy : public sixfive::DefaultPolicy
 
 	static void checkEffect(sixfive::Machine<DebugPolicy> &m) {
 		static sixfive::Machine<DebugPolicy> om;
-		printf("[ ");
-		if(om.pc != m.pc)
-			printf("PC := %04x ", (unsigned)m.pc);
-		if(om.a != m.a)
-			printf("A := %02x ", m.a);
-		if(om.x != m.x)
-			printf("X := %02x ", m.x);
-		if(om.y != m.y)
-			printf("Y := %02x ", m.y);
-		if(om.sr != m.sr)
-			printf("SR := %02x ", m.sr);
-		if(om.sp != m.sp)
-			printf("SP := %02x ", m.sp);
-		printf("]\n");
-		for(int i = 0; i < 65536; i++)
-			if(m.ram[i] != om.ram[i]) {
-				printf("%04x := %02x ", i, m.ram[i] & 0xff);
+		if(om.pc != 0) {
+			//if(om.pc != m.pc)
+			printf("%04x : ", (unsigned)om.pc);
+			printf("[ ");
+			if(om.a != m.a)
+				printf("A:%02x ", m.a);
+			if(om.x != m.x)
+				printf("X:%02x ", m.x);
+			if(om.y != m.y)
+				printf("Y:%02x ", m.y);
+			if(om.sr != m.sr)
+				printf("SR:%02x ", m.sr);
+			if(om.sp != m.sp)
+				printf("SP:%02x ", m.sp);
+			bool first = true;
+			for(int i = 0; i < 65536; i++)
+				if(m.ram[i] != om.ram[i]) {
+					if(!first) printf(" # ");
+					first = false;
+					printf("%04x: ", i);
+					while(m.ram[i] != om.ram[i]) {
+						printf("%02x ", m.ram[i] & 0xff);
+						om.ram[i] = m.ram[i];
+					}
+				}
+			printf("]\n");
+		} else {
+			for(int i = 0; i < 65536; i++)
 				om.ram[i] = m.ram[i];
-			}
-		puts("");
-
+		}
 		om.a = m.a;
 		om.x = m.x;
 		om.y = m.y;
@@ -83,9 +92,12 @@ struct DebugPolicy : public sixfive::DefaultPolicy
 		breaks[pc] = f;
 	}
 
+	static bool doTrace;
+
 	 static bool eachOp(sixfive::Machine<DebugPolicy> &m) {
 		static int lastpc = -1;
-		checkEffect(m);
+		if(doTrace)
+			checkEffect(m);
 		if(m.pc == lastpc) {
 			printf("STALL\n");
 			return true;
@@ -94,6 +106,9 @@ struct DebugPolicy : public sixfive::DefaultPolicy
 		return false;
 	}
 };
+
+bool DebugPolicy::doTrace = false;
+
 
 struct CheckPolicy : public sixfive::DefaultPolicy
 {

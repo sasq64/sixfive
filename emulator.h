@@ -154,7 +154,17 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
 
 	uint8_t readRam(uint16_t org) { return ram[org]; }
 
-	uint8_t readMem(uint16_t org) { return rbank[org>>8][org&0xff]; }
+	uint8_t readMem(uint16_t org) { 
+		if(POLICY::BankedMemory)
+			return rbank[org>>8][org&0xff];
+		else
+			return ram[org];
+	}
+
+	void readMem(uint16_t org, uint8_t *data, int size) {
+		for(int i=0; i<size; i++)
+			data[i] = readMem(org+i);
+	}
 
 	void mapRom(uint8_t bank, uint8_t*data, int len) {
 		auto end = data + len;

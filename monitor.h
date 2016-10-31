@@ -1,24 +1,62 @@
 
 
 #include <bbsutils/console.h>
+#include <bbsutils/editor.h>
 #include "emulator.h"
 #include "assembler.h"
 #include "parser.h"
 
+#include <memory>
+
 namespace sixfive {
 
-std::string opmode() {
-	return "";
-}
+constexpr static const char* modeTemplate[] = { 
+	"",
+	"",
+	"A",
 
-void disasm(uint16_t org, uint8_t *mem) {
+	"SIZE2",
+
+	"#$%02x",
+	"$%04x",
+
+	"$%02x",
+	"$%02x,x",
+	"$%02x,y",
+	"($%02x,x)",
+	"($%02x),y",
+
+	"SIZE3",
+
+	"($%04x)",
+	"$%04x",
+	"$%04x,x",
+	"$%04x,y",
+};
+
+std::string disasm(uint16_t &org, uint8_t* mem) {
+
 	for(const auto &ins : Machine<>::getInstructions()) {
 		for(const auto &op : ins.opcodes) {
-			if(op.code == *mem) {
-
+			if(op.code == mem[0]) {
+				int v = 0;
+				auto *orgmem = mem;
+				mem++;
+				if(op.mode > SIZE2)
+					v = *mem++;
+				if(op.mode > SIZE3)
+					v = v | (*mem++)<<8;
+				if(op.mode == REL)
+					v = ((int8_t)v) + 2 + org;
+				org += (mem - orgmem);
+				if(op.mode == NONE)
+					return ins.name;
+				return ins.name + " " + utils::format(modeTemplate[op.mode], v);
 			}
 		}
 	}
+	org++;
+	return utils::format("db $%02x", mem[0]);
 };
 
 template <typename POLICY> void monitor(Machine<POLICY>& m) {
@@ -35,13 +73,44 @@ template <typename POLICY> void monitor(Machine<POLICY>& m) {
 
 	MonParser parser;
 
+	auto lineEd = std::make_unique<bbs::LineEditor>(*console, 40);
+
 	while(true) {
-		auto line = console->getLine(">>");
+		print(">>");
+		lineEd->setXY();
+		lineEd->setString(prefix);
+		while(lineEd->update(500) != bbs::Console::KEY_ENTER);
+		console->write("\n");
+		auto line = lineEd->getResult();
+		if(line == prefix) {
+			prefix = "";
+			continue;
+		}
 		auto cmd = parser.parseLine(line);
 		if(!cmd) {
 			print("?SYNTAX  ERROR\n");
 			continue;
 		}
+		//print("CMD '%s' ARG '%s'\n", cmd.name, cmd.strarg);
+
+		if(cmd.name == "trace") {
+			POLICY::doTrace = (cmd.strarg=="on");
+		} else
+		if(cmd.name == "d") {
+			if(cmd.args.size() > 0)
+				start = cmd.args[0];
+			uint8_t input[4];
+			for(int i=0; i<size; i++) {
+				m.readMem(start, input, 3);
+				auto org = start;
+				auto s = disasm(start, input);
+				print("%04x: %s\n", org, s);
+			}
+
+		} else
+		if(cmd.name == "c") {
+			m.run();
+		} else
 		if(cmd.name == "g") {
 			m.pc = cmd.args[0];
 			m.run();
