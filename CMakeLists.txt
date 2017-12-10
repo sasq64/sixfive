@@ -1,25 +1,27 @@
 cmake_minimum_required(VERSION 2.8.4)
 project(sixfive)
+set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 
-set(APONE ../apone/mods)
+set(APONE ../chipmachine/apone/mods)
 
 set(SOURCE_FILES
-main.cpp
-assembler.cpp
-parser.cpp
-tests.cpp
-${APONE}/coreutils/file.cpp
-${APONE}/coreutils/utils.cpp
-${APONE}/bbsutils/console.cpp
-${APONE}/bbsutils/ansiconsole.cpp
-${APONE}/bbsutils/localconsole.cpp
-${APONE}/bbsutils/editor.cpp
+	#	emulator.cpp
+	main.cpp
+	assembler.cpp
+	parser.cpp
+	tests.cpp
+	${APONE}/coreutils/file.cpp
+	${APONE}/coreutils/utils.cpp
+	${APONE}/bbsutils/console.cpp
+	${APONE}/bbsutils/ansiconsole.cpp
+	${APONE}/bbsutils/localconsole.cpp
+	${APONE}/bbsutils/editor.cpp
 )
 
 add_subdirectory(zyan-disassembler-engine)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Wno-error=deprecated-declarations -O2 -march=native -std=c++14")
-include_directories(. /usr/local/include ../apone/mods)
+include_directories(. /usr/local/include ${APONE})
 
 add_definitions(-DUSE_APONE -DSIMPLE_LOG)
 

@@ -1,9 +1,9 @@
-all : boost/spirit.hpp build/Makefile
-	make -C build
+all : boost/spirit.hpp build/build.ninja
+	ninja -C build
 
-build/Makefile :
+build/bulld.ninja :
 	mkdir -p build
-	(cd build ; cmake ..)
+	(cd build ; cmake -G Ninja ..)
 
 boost/spirit.hpp :
 	unzip -q boost.zip
