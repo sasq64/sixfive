@@ -99,11 +99,11 @@ template <typename POLICY> void monitor(Machine<POLICY>& m) {
 		if(cmd.name == "d") {
 			if(cmd.args.size() > 0)
 				start = cmd.args[0];
-			uint8_t input[4];
+			int8_t input[4];
 			for(int i=0; i<size; i++) {
 				m.readMem(start, input, 3);
 				auto org = start;
-				auto s = disasm(start, input);
+				auto s = disasm(start, (uint8_t*)input);
 				print("%04x: %s\n", org, s);
 			}
 
@@ -112,7 +112,7 @@ template <typename POLICY> void monitor(Machine<POLICY>& m) {
 			m.run();
 		} else
 		if(cmd.name == "g") {
-			m.pc = cmd.args[0];
+			m.setPC(cmd.args[0]);
 			m.run();
 		} else
 		if(cmd.name == "a") {
@@ -121,7 +121,7 @@ template <typename POLICY> void monitor(Machine<POLICY>& m) {
 				start = cmd.args[0];
 			int len = assemble(start, output, cmd.strarg);
 			if(len > 0) {
-				m.writeRam(start, output, len);
+				m.writeRam(start, (int8_t*)output, len);
 				start += len;
 				prefix = utils::format("a %04x ", start);
 			}
@@ -137,7 +137,8 @@ template <typename POLICY> void monitor(Machine<POLICY>& m) {
 			print("\n");
 		} else
 		if(cmd.name == "r") {
-			print("PC %04x A %02x X %02x Y %02x SR %02x SP %02x\n", m.pc, m.a, m.x, m.y,m.sr, m.sp);
+            const auto [a,x,y,sr,sp,pc] = m.regs();
+			print("PC %04x A %02x X %02x Y %02x SR %02x SP %02x\n", pc, a, x, y, sr, sp);
 		}
 	}
 };

@@ -1,9 +1,9 @@
+#include <array>
 #include <coreutils/file.h>
 #include <regex>
-#include <array>
 
-#include "sixfive.h"
 #include "instructions.h"
+#include "sixfive.h"
 
 struct Emulator
 {
@@ -20,10 +20,10 @@ struct Emulator
 		}
 	}
 
-
 	Machine m;
-	Machine om;;
-	std::array<OpVariant,256> opCodes;
+	Machine om;
+	;
+	std::array<OpVariant, 256> opCodes;
 
 	void run(uint32_t cycles) {
 
@@ -34,63 +34,52 @@ struct Emulator
 				return;
 
 			auto opcode = opCodes[code];
-			//printf("Opcode %02x = %s\n", code, opcode.name);
+			// printf("Opcode %02x = %s\n", code, opcode.name);
 
 			uint8_t *ea = nullptr;
 			int o;
 			auto mode = opcode.mode;
-			//printf("%04x : %02x %s %s\n", m.pc-1, code, opcode.name, modeNames[mode].c_str());
+			// printf("%04x : %02x %s %s\n", m.pc-1, code, opcode.name,
+			// modeNames[mode].c_str());
 			ea = m.mem;
-			//ea = &m.mem[m.mem[m.pc] | m.mem[m.pc+1]<<8];
+			// ea = &m.mem[m.mem[m.pc] | m.mem[m.pc+1]<<8];
 
 			switch(mode) {
-			case NONE:
-				break;
+			case NONE: break;
 			case IMM:
-			case REL:
-				ea = &m.mem[m.pc];
-				break;
+			case REL: ea = &m.mem[m.pc]; break;
 			case IND:
-				//ea = &m.mem[m.mem[m.pc] | m.mem[m.pc+1]<<8];
+				// ea = &m.mem[m.mem[m.pc] | m.mem[m.pc+1]<<8];
 				break;
-			case ABS:
-				ea = &m.mem[m.mem[m.pc] | m.mem[m.pc+1]<<8];
-				break;
+			case ABS: ea = &m.mem[m.mem[m.pc] | m.mem[m.pc + 1] << 8]; break;
 			case ABS_X:
-				ea = &m.mem[m.mem[m.pc] | (m.mem[m.pc+1]<<8) + m.x];
+				ea = &m.mem[m.mem[m.pc] | (m.mem[m.pc + 1] << 8) + m.x];
 				break;
 			case ABS_Y:
-				ea = &m.mem[m.mem[m.pc] | (m.mem[m.pc+1]<<8) + m.y];
+				ea = &m.mem[m.mem[m.pc] | (m.mem[m.pc + 1] << 8) + m.y];
 				break;
 			case IND_X:
 				o = (m.mem[m.pc] + m.x) & 0xff;
-				ea = &m.mem[ m.mem[o] | (m.mem[o+1]<<8) ];
+				ea = &m.mem[m.mem[o] | (m.mem[o + 1] << 8)];
 				break;
 			case IND_Y:
 				o = m.mem[m.pc];
-				ea = &m.mem[ m.mem[o] | (m.mem[o+1]<<8) + m.y];
+				ea = &m.mem[m.mem[o] | (m.mem[o + 1] << 8) + m.y];
 				break;
-			case ZP_X:
-				ea = &m.mem[(m.mem[m.pc] + m.x) & 0xff];
-				break;
-			case ZP_Y:
-				ea = &m.mem[(m.mem[m.pc] + m.y) & 0xff];
-				break;
-			case ZP:
-				ea = &m.mem[ m.mem[m.pc] ];
-				break;
+			case ZP_X: ea = &m.mem[(m.mem[m.pc] + m.x) & 0xff]; break;
+			case ZP_Y: ea = &m.mem[(m.mem[m.pc] + m.y) & 0xff]; break;
+			case ZP: ea = &m.mem[m.mem[m.pc]]; break;
 			default:
 				break;
-				//printf("PC %04x, op %02x\n", m.pc, code);
-				//throw new run_exception("Illegal opcode");
+				// printf("PC %04x, op %02x\n", m.pc, code);
+				// throw new run_exception("Illegal opcode");
 			}
 			m.pc += (mode > SIZE3 ? 2 : (mode > SIZE2 ? 1 : 0));
 			opcode.op(m, ea);
 			m.cycles += opcode.cycles;
-			//checkEffect();
+			// checkEffect();
 		}
 	}
-
 
 	void checkEffect() {
 		if(om.a != m.a)
@@ -99,7 +88,7 @@ struct Emulator
 			printf("X := %02x\n", m.x);
 		if(om.y != m.y)
 			printf("Y := %02x\n", m.y);
-		for(int i=0; i<65536; i++)
+		for(int i = 0; i < 65536; i++)
 			if(m.mem[i] != om.mem[i]) {
 				printf("%04x := %02x\n", i, m.mem[i]);
 				om.mem[i] = m.mem[i];
@@ -108,23 +97,22 @@ struct Emulator
 			printf("SR := %02x\n", m.sr);
 
 		memcpy(&om.a, &m.a, 12);
-
 	}
-
-
 };
 
+struct Assembler
+{
 
-struct Assembler {
-
-	struct Arg {
+	struct Arg
+	{
 		Arg(AdressingMode am = ILLEGAL, int val = -1) : mode(am), val(val) {}
 		AdressingMode mode;
 		int val;
 	};
 
 	Arg parse(const std::string &a) {
-		const static std::regex arg_regex(R"(^\(?(#?)(\$?)(\w*)(,[xy])?(\)?)(,y)?)");
+		const static std::regex arg_regex(
+		    R"(^\(?(#?)(\$?)(\w*)(,[xy])?(\)?)(,y)?)");
 		std::smatch m;
 		AdressingMode mode = ILLEGAL;
 		int v = -1;
@@ -142,7 +130,7 @@ struct Assembler {
 				else if(m[6] == "" && m[4] == "")
 					mode = IND;
 				else
-					mode = ILLEGAL;	
+					mode = ILLEGAL;
 			} else {
 				if(m[3] == "a")
 					mode = ACC;
@@ -162,8 +150,8 @@ struct Assembler {
 
 	int assemble(const std::string &code, uint8_t *output, int pc) {
 		int total = 0;
-		for(const auto &line :  utils::split(code, "\n")) {
-			int rc= assembleLine(line, output, pc);
+		for(const auto &line : utils::split(code, "\n")) {
+			int rc = assembleLine(line, output, pc);
 			if(rc < 0)
 				throw run_exception("Unknown opcode " + line);
 			printf("asm to %p %x = %d\n", output, pc, rc);
@@ -177,7 +165,8 @@ struct Assembler {
 	int assembleLine(const std::string &line, uint8_t *output, int pc) {
 		std::regex line_regex(R"(^(\w+:?)?\s*((\w+)\s*(\S+)?)?\s*(;.*)?$)");
 		std::smatch matches;
-		if(line == "") return 0;
+		if(line == "")
+			return 0;
 		if(std::regex_match(line, matches, line_regex)) {
 			Arg a;
 			if(matches[4] != "") {
@@ -231,9 +220,9 @@ static void Bench_emulate(benchmark::State &state) {
 	inx
 	bne $500
 	beq $500
-)", &emu.m.mem[0x500], 0x500);
-	while(state.KeepRunning())
-	{
+)",
+	             &emu.m.mem[0x500], 0x500);
+	while(state.KeepRunning()) {
 		emu.m.cycles = 0;
 		emu.m.pc = 0x500;
 		emu.run(3500);
@@ -248,13 +237,12 @@ BENCHMARK_MAIN();
 
 int main(int argc, char **argv) {
 
-
-	using utils::File; 
+	using utils::File;
 	Assembler ass;
 	Emulator e;
 	int pc = 0x100;
 
-	auto text = File(argv[1]).getLines(); 
+	auto text = File(argv[1]).getLines();
 	for(const auto &t : text) {
 		puts(t.c_str());
 		pc += ass.assembleLine(t, &e.m.mem[pc], pc);
@@ -266,10 +254,10 @@ int main(int argc, char **argv) {
 	e.run(100);
 
 	printf("\n0x00:");
-	for(int i=0; i<0x10; i++)
+	for(int i = 0; i < 0x10; i++)
 		printf(" %02x", e.m.mem[i]);
 	printf("\n0xc000:");
-	for(int i=0; i<0x10; i++)
+	for(int i = 0; i < 0x10; i++)
 		printf(" %02x", e.m.mem[0xc000 + i]);
 	printf("\n");
 

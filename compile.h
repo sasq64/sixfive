@@ -82,8 +82,8 @@ template <typename POLICY> int compile(const std::string &fileName, Machine<POLI
 
 			return 0;
 		}
-		uint8_t temp[4];
-		int len = assemble(org, &temp[0], std::string(" ") + op + " " + arg);
+		int8_t temp[4];
+		int len = assemble(org, (uint8_t*)&temp[0], std::string(" ") + op + " " + arg);
 		if(len > 0) {
 			m.writeRam(org, &temp[0], len);
 			auto o = org + len;
@@ -98,7 +98,7 @@ template <typename POLICY> int compile(const std::string &fileName, Machine<POLI
 		uint8_t temp[65536];
 		m.readRam(0x1000, temp, len);
 		utils::File f { "dump.dat" };
-		f.write(temp, len);
+		f.write((uint8_t*)temp, len);
 	}
 
 	return ok;

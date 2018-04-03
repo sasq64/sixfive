@@ -5,7 +5,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 set(APONE ../chipmachine/apone/mods)
 
 set(SOURCE_FILES
-	#	emulator.cpp
+	emulator.cpp
 	main.cpp
 	assembler.cpp
 	parser.cpp
@@ -20,7 +20,7 @@ set(SOURCE_FILES
 
 add_subdirectory(zyan-disassembler-engine)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Wno-error=deprecated-declarations -O2 -march=native -std=c++14")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Wno-error=deprecated-declarations -O2 -march=native -std=c++17")
 include_directories(. /usr/local/include ${APONE})
 
 add_definitions(-DUSE_APONE -DSIMPLE_LOG)

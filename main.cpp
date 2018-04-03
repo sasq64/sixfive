@@ -47,43 +47,37 @@ struct DebugPolicy : public sixfive::DefaultPolicy
 
 	static void checkEffect(sixfive::Machine<DebugPolicy> &m) {
 		static sixfive::Machine<DebugPolicy> om;
-		if(om.pc != 0) {
+		if(om.regPC() != 0) {
 			//if(om.pc != m.pc)
-			printf("%04x : ", (unsigned)om.pc);
+			printf("%04x : ", (unsigned)om.regPC());
 			printf("[ ");
-			if(om.a != m.a)
-				printf("A:%02x ", m.a);
-			if(om.x != m.x)
-				printf("X:%02x ", m.x);
-			if(om.y != m.y)
-				printf("Y:%02x ", m.y);
-			if(om.sr != m.sr)
-				printf("SR:%02x ", m.sr);
-			if(om.sp != m.sp)
-				printf("SP:%02x ", m.sp);
+			if(om.regA() != m.regA())
+				printf("A:%02x ", m.regA());
+			if(om.regX() != m.regX())
+				printf("X:%02x ", m.regX());
+			if(om.regY() != m.regY())
+				printf("Y:%02x ", m.regY());
+			if(om.regSR() != m.regSR())
+				printf("SR:%02x ", m.regSR());
+			if(om.regSP() != m.regSP())
+				printf("SP:%02x ", m.regSP());
 			bool first = true;
 			for(int i = 0; i < 65536; i++)
-				if(m.ram[i] != om.ram[i]) {
+				if(m.Ram(i) != om.Ram(i)) {
 					if(!first) printf(" # ");
 					first = false;
 					printf("%04x: ", i);
-					while(m.ram[i] != om.ram[i]) {
-						printf("%02x ", m.ram[i] & 0xff);
-						om.ram[i] = m.ram[i];
+					while(m.Ram(i) != om.Ram(i)) {
+						printf("%02x ", m.Ram(i) & 0xff);
+						om.Ram(i) = m.Ram(i);
 					}
 				}
 			printf("]\n");
 		} else {
 			for(int i = 0; i < 65536; i++)
-				om.ram[i] = m.ram[i];
+				om.Ram(i) = m.Ram(i);
 		}
-		om.a = m.a;
-		om.x = m.x;
-		om.y = m.y;
-		om.sp = m.sp;
-		om.sr = m.sr;
-		om.pc = m.pc;
-		om.sp = m.sp;
+        om.regs() = m.regs();
 	}
 
 	std::unordered_map<uint16_t, std::function<void(sixfive::Machine<DebugPolicy> &m)>> breaks;
@@ -98,11 +92,11 @@ struct DebugPolicy : public sixfive::DefaultPolicy
 		static int lastpc = -1;
 		if(doTrace)
 			checkEffect(m);
-		if(m.pc == lastpc) {
+		if(m.regPC() == lastpc) {
 			printf("STALL\n");
 			return true;
 		}
-		lastpc = m.pc;
+		lastpc = m.regPC();
 		return false;
 	}
 };
@@ -114,15 +108,16 @@ struct CheckPolicy : public sixfive::DefaultPolicy
 {
 	 static bool eachOp(sixfive::Machine<CheckPolicy> &m) {
 		static int lastpc = -1;
-		if(m.pc == lastpc) {
-			printf("STALL @ %04x A %02x X %02x Y %02x SR %02x SP %02x\n", lastpc, m.a, m.x, m.y,m.sr, m.sp);
+		if(m.regPC() == lastpc) {
+            const auto [a,x,y,sr,sp,pc] = m.regs();
+			printf("STALL @ %04x A %02x X %02x Y %02x SR %02x SP %02x\n", lastpc, a, x, y, sr, sp);
 			for(int i=0; i<256; i++)
-				printf("%02x ", m.stack[i]);
+				printf("%02x ", m.Stack(i));
 			printf("\n");
 
 			return true;
 		}
-		lastpc = m.pc;
+		lastpc = m.regPC();
 		return false;
 	}
 };
@@ -167,8 +162,8 @@ int main(int argc, char **argv)
 	// Run tests
 	if(doTest) {
 		checkAllCode();
-		benchmark::Initialize(&argc, argv);
-		benchmark::RunSpecifiedBenchmarks();
+		/* benchmark::Initialize(&argc, argv); */
+		/* benchmark::RunSpecifiedBenchmarks(); */
 		utils::File f { "6502test.bin" };
 		auto data = f.readAll();
 		data[0x3af8] = 0x60;

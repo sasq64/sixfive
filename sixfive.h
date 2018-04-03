@@ -1,9 +1,9 @@
 #pragma once
+#include <cstdlib>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include <cstdlib>
-#include <cstring>
 
 class run_exception : public std::exception
 {
@@ -29,7 +29,7 @@ enum AdressingMode {
 
 	IMM,
 	REL,
-// Zero page
+	// Zero page
 	ZP,
 	ZP_X,
 	ZP_Y,
@@ -44,28 +44,28 @@ enum AdressingMode {
 	ABS_Y,
 };
 
-const static std::string modeNames[] = { 
-	"ILLEGAL",
-	"NONE",
-	"ACC",
+const static std::string modeNames[] = {
+    "ILLEGAL",
+    "NONE",
+    "ACC",
 
-	"SIZE2",
+    "SIZE2",
 
-	"#IMM",
-	"REL",
-// Zero page
-	"$ZP",
-	"$ZP,X",
-	"$ZP,Y",
-	"$(ZP,X)",
-	"$(ZP),Y",
+    "#IMM",
+    "REL",
+    // Zero page
+    "$ZP",
+    "$ZP,X",
+    "$ZP,Y",
+    "$(ZP,X)",
+    "$(ZP),Y",
 
-	"SIZE3",
+    "SIZE3",
 
-	"($IND)",
-	"$ABS",
-	"$ABS,X",
-	"$ABS,Y",
+    "($IND)",
+    "$ABS",
+    "$ABS,X",
+    "$ABS,Y",
 };
 
 enum SR {
@@ -79,7 +79,7 @@ enum SR {
 	SR_S = 0x80
 };
 
-//constexpr inline int mask(int l) { return 1<<l; }
+// constexpr inline int mask(int l) { return 1<<l; }
 
 struct Machine
 {
@@ -98,35 +98,39 @@ struct Machine
 	Machine() {
 		memset(this, 0, sizeof(Machine));
 		memsize = 65536;
-		stack = new uint8_t [256];
-		mem = new uint8_t [memsize];
+		stack = new uint8_t[256];
+		mem = new uint8_t[memsize];
 	}
 
 	Machine clone() {
 		Machine m2;
 		memcpy(&m2, this, sizeof(Machine));
-		m2.mem = new uint8_t [memsize];
-		m2.stack = new uint8_t [256];
+		m2.mem = new uint8_t[memsize];
+		m2.stack = new uint8_t[256];
 		memcpy(m2.mem, mem, memsize);
 		memcpy(m2.stack, stack, 256);
 		return m2;
 	}
-
 };
 
-struct OpVariant {
+struct OpVariant
+{
 	OpVariant() {}
-	OpVariant(uint8_t code, uint8_t cycles, AdressingMode mode) : code(code), cycles(cycles), mode(mode) {}
+	OpVariant(uint8_t code, uint8_t cycles, AdressingMode mode)
+	    : code(code), cycles(cycles), mode(mode) {}
 	uint8_t code;
 	int cycles;
 	const char *name;
 	AdressingMode mode;
-	void (*op)(Machine&, uint8_t*);
+	void (*op)(Machine &, uint8_t *);
 };
 
-struct Instruction {
-	Instruction(const std::string &name, std::vector<OpVariant> ov, void (*op)(Machine&, uint8_t*)) : name(name), opcodes(ov), op(op) {}
+struct Instruction
+{
+	Instruction(const std::string &name, std::vector<OpVariant> ov,
+	            void (*op)(Machine &, uint8_t *))
+	    : name(name), opcodes(ov), op(op) {}
 	const std::string name;
 	std::vector<OpVariant> opcodes;
-	void (*op)(Machine&, uint8_t*);
+	void (*op)(Machine &, uint8_t *);
 };
