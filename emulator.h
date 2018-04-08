@@ -61,7 +61,7 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
 {
     enum REGNAME
     {
-        NOREG,
+        NOREG = 20,
         A,
         X,
         Y,
@@ -362,17 +362,12 @@ private:
 
     void set_SR(uint8_t s) { sr = s | 0x30; }
 
-    template <int BITS, typename T> void set(T res, T arg = 0)
+    template <int BITS> void set(int res, int arg = 0)
     {
         sr &= ~BITS;
 
         if constexpr ((BITS & S) != 0) sr |= (res & 0x80); // Apply signed bit
-        if constexpr ((BITS & Z) != 0) {
-            if constexpr (sizeof(T) == 1)
-                sr |= (!res << 1); // Apply zero
-            else
-                sr |= (!(res & 0xff) << 1); // Apply zero
-        }
+        if constexpr ((BITS & Z) != 0) sr |= (!(res & 0xff) << 1); // Apply zero
         if constexpr ((BITS & C) != 0) sr |= ((res >> 8) & 1); // Apply carry
         if constexpr ((BITS & V) != 0)
             sr |= ((~(a ^ arg) & (a ^ res) & 0x80) >> 1); // Apply overflow
@@ -381,23 +376,6 @@ private:
     template <int REG> void set_SZ()
     {
         sr = (sr & ~SZ) | (Reg<REG>() & 0x80) | (!Reg<REG>() << 1);
-    }
-
-    void set_SZ(uint8_t res) { sr = (sr & ~SZ) | (res & 0x80) | (!res << 1); }
-
-    void set_SZC(unsigned res)
-    {
-        sr = (sr & ~SZC) | (res & 0x80) | (!(res & 0xff) << 1) |
-             ((res >> 8) & 1);
-    }
-
-    void set_SZCV(unsigned res, int arg)
-    {
-        sr = (sr & ~SZCV) |                           // Clear all flags
-             (res & 0x80) |                          // Apply signed bit
-             (!(res & 0xff) << 1) |                  // Apply zero
-             ((res >> 8) & 1) |                      // Apply carry
-             ((~(a ^ arg) & (a ^ res) & 0x80) >> 1); // Apply overflow
     }
 
     template <int FLAG> int check() const { return sr & (1 << FLAG); }
@@ -519,15 +497,15 @@ private:
 
     template <int MODE, int inc> static constexpr void Inc(Machine& m)
     {
-        auto adr = m.ReadEA<MODE>();
-        auto rc = (m.Read(adr) + inc);
-        m.Write(adr, rc);
-        m.set_SZ(rc);
-    }
-
-    template <int REG, int inc> static constexpr void IncReg(Machine& m)
-    {
-        m.Reg<REG>() = (m.Reg<REG>() + inc) & 0xff ; m.set_SZ<REG>();
+        if constexpr(MODE >= A) {
+            m.Reg<MODE>() = (m.Reg<MODE>() + inc) & 0xff;
+            m.set_SZ<MODE>();
+        } else {
+            auto adr = m.ReadEA<MODE>();
+            auto rc = (m.Read(adr) + inc);
+            m.Write(adr, rc);
+            m.set<SZ>(rc);
+        }
     }
 
     // === COMPARE, ADD & SUBTRACT
@@ -541,15 +519,15 @@ private:
     template <int REG, int MODE> static constexpr void Cmp(Machine& m)
     {
         Word z = (~m.LoadEA<MODE>()) & 0xff;
-        int rc = m.Reg<REG>() + z + 1;
-        m.set_SZC(rc);
+        unsigned rc = m.Reg<REG>() + z + 1;
+        m.set<SZC>(rc);
     }
 
     template <int MODE> static constexpr void Sbc(Machine& m)
     {
         Word z = (~m.LoadEA<MODE>()) & 0xff;
         int rc = m.a + z + m.check<CARRY>();
-        m.set_SZCV(rc, z);
+        m.set<SZCV>(rc, z);
         m.a = rc & 0xff;
     }
 
@@ -557,7 +535,7 @@ private:
     {
         auto z = m.LoadEA<MODE>();
         int rc = m.a + z + m.check<CARRY>();
-        m.set_SZCV(rc, z);
+        m.set<SZCV>(rc, z);
         m.a = rc & 0xff;
     }
 
@@ -585,12 +563,12 @@ private:
     {
         if constexpr (MODE == ACC) {
             int rc = m.a << 1;
-            m.set_SZC(rc);
+            m.set<SZC>(rc);
             m.a = rc & 0xff;
         } else {
             auto adr = m.ReadEA<MODE>();
             int rc = m.Read(adr) << 1;
-            m.set_SZC(rc);
+            m.set<SZC>(rc);
             m.Write(adr, rc);
         }
     }
@@ -607,7 +585,7 @@ private:
             m.sr = (m.sr & 0xfe) | (rc & 1);
             rc >>= 1;
             m.Write(adr, rc);
-            m.set_SZ(rc);
+            m.set<SZ>(rc);
         }
     }
 
@@ -618,7 +596,7 @@ private:
         m.sr = (m.sr & 0xfe) | (rc & 1);
         rc >>= 1;
         m.Write(adr, rc);
-        m.set_SZ(rc);
+        m.set<SZ>(rc);
     }
 
     static constexpr void RorA(Machine& m)
@@ -634,13 +612,13 @@ private:
         auto adr = m.ReadEA<MODE>();
         unsigned rc = (m.Read(adr) << 1) | m.check<CARRY>();
         m.Write(adr, rc);
-        m.set_SZC(rc);
+        m.set<SZC>(rc);
     }
 
     static constexpr void RolA(Machine& m)
     {
-        int rc = (m.a << 1) | m.check<CARRY>();
-        m.set_SZC(rc);
+        unsigned rc = (m.a << 1) | m.check<CARRY>();
+        m.set<SZC>(rc);
         m.a = rc & 0xff;
     }
 
@@ -731,15 +709,10 @@ private:
         { "txs", { { 0x9a, 2, NONE, Transfer<X, SP> } } },
         { "tsx", { { 0xba, 2, NONE, Transfer<SP, X> } } },
 
-        /* { "dex", { { 0xca, 2, NONE, IncReg<X, -1> } } }, */
-        /* { "inx", { { 0xe8, 2, NONE, IncReg<X, 1> } } }, */
-        /* { "dey", { { 0x88, 2, NONE, IncReg<Y, -1> } } }, */
-        /* { "iny", { { 0xc8, 2, NONE, IncReg<Y, 1> } } }, */
-
-        { "dex", { { 0xca, 2, NONE, [](Machine& m) { m.x = (m.x-1) & 0xff ; m.set_SZ<X>(); } } } },
-        { "inx", { { 0xe8, 2, NONE, [](Machine& m) { m.x = (m.x+1) & 0xff ; m.set_SZ<X>(); } } } },
-        { "dey", { { 0x88, 2, NONE, [](Machine& m) { m.y = (m.y-1) & 0xff ; m.set_SZ<Y>(); } } } },
-        { "iny", { { 0xc8, 2, NONE, [](Machine& m) { m.y = (m.y+1) & 0xff ; m.set_SZ<Y>(); } } } },
+        { "dex", { { 0xca, 2, NONE, Inc<X, -1> } } },
+        { "inx", { { 0xe8, 2, NONE, Inc<X, 1> } } },
+        { "dey", { { 0x88, 2, NONE, Inc<Y, -1> } } },
+        { "iny", { { 0xc8, 2, NONE, Inc<Y, 1> } } },
 
         { "pha", { { 0x48, 3, NONE, [](Machine& m) {
             m.stack[m.sp--] = m.a;
@@ -852,7 +825,7 @@ private:
         { "cld", { { 0xd8, 2, NONE, Set<DECIMAL, false> } } },
         { "clv", { { 0xb8, 2, NONE, Set<OVER, false> } } },
 
-        { "lsr", { 
+        { "lsr", {
             { 0x4a, 2, NONE, Lsr<ACC>},
             { 0x4a, 2, ACC, Lsr<ACC>},
             { 0x46, 5, ZP, Lsr<ZP>},
@@ -861,7 +834,7 @@ private:
             { 0x5e, 7, ABSX, Lsr<ABSX>},
         } },
 
-        { "asl", { 
+        { "asl", {
             { 0x0a, 2, NONE, Asl<ACC>},
             { 0x0a, 2, ACC, Asl<ACC>},
             { 0x06, 5, ZP, Asl<ZP>},
@@ -870,7 +843,7 @@ private:
             { 0x1e, 7, ABSX, Asl<ABSX>},
         } },
 
-        { "ror", { 
+        { "ror", {
             { 0x6a, 2, NONE, RorA},
             { 0x6a, 2, ACC, RorA},
             { 0x66, 5, ZP, Ror<ZP>},
@@ -879,7 +852,7 @@ private:
             { 0x7e, 7, ABSX, Ror<ABSX>},
         } },
 
-        { "rol", { 
+        { "rol", {
             { 0x2a, 2, NONE, RolA},
             { 0x2a, 2, ACC, RolA},
             { 0x26, 5, ZP, Rol<ZP>},
@@ -894,7 +867,7 @@ private:
         } },
 
         { "rti", {
-            { 0x40, 6, NONE, [](Machine& m) { 
+            { 0x40, 6, NONE, [](Machine& m) {
                 m.set_SR(m.stack[++m.sp]);// & !(1<<BRK));
                 m.pc = (m.stack[m.sp+1] | (m.stack[m.sp+2]<<8));
                 m.sp += 2;
@@ -902,10 +875,10 @@ private:
         } },
 
         { "brk", {
-            { 0x00, 7, NONE, [](Machine& m) {  
+            { 0x00, 7, NONE, [](Machine& m) {
                 m.ReadPC();
                 m.stack[m.sp--] = m.pc >> 8;
-                m.stack[m.sp--] = m.pc & 0xff; 
+                m.stack[m.sp--] = m.pc & 0xff;
                 m.stack[m.sp--] = m.get_SR();// | (1<<BRK);
                 m.pc = m.Read16(m.to_adr(0xfe, 0xff));
             } }
@@ -931,7 +904,7 @@ private:
         { "jsr", {
             { 0x20, 6, ABS, [](Machine& m) {
                 m.stack[m.sp--] = (m.pc+1U) >> 8;
-                m.stack[m.sp--] = (m.pc+1) & 0xffU; 
+                m.stack[m.sp--] = (m.pc+1) & 0xffU;
                 m.pc = m.ReadPC16();
             } }
         } },
