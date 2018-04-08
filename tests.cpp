@@ -12,7 +12,7 @@ struct Result {
 	bool tooLong;
 };
 
-void disasm(void *ptr, struct Result &r) {
+void disasm(void *ptr, bool dis, struct Result &r) {
 
 	using namespace Zydis;
 
@@ -27,7 +27,7 @@ void disasm(void *ptr, struct Result &r) {
 	r.calls = r.opcodes = r.jumps = 0;
 	while (decoder.decodeInstruction(info))
     {
-        if(!(info.flags & IF_ERROR_MASK))
+        if(dis && !(info.flags & IF_ERROR_MASK))
 			printf("    %s\n", formatter.formatInstruction(info));
 
 		if(info.mnemonic >= InstructionMnemonic::JA && info.mnemonic <= InstructionMnemonic::JS)
@@ -49,7 +49,7 @@ void disasm(void *ptr, struct Result &r) {
 
 }
 
-template <typename POLICY> void checkCode() {
+template <typename POLICY> void checkCode(bool dis) {
 
 	using namespace sixfive;
 
@@ -61,8 +61,8 @@ template <typename POLICY> void checkCode() {
 
 	for(const auto &i : Machine<POLICY>::getInstructions()) {
 		for(const auto &o : i.opcodes) {
-			disasm((void*)o.op, r);
-			printf("%s (%d/%d/%d)\n", i.name.c_str(), r.opcodes, r.calls, r.jumps);
+            disasm((void*)o.op, dis, r);
+			printf("%s (%d/%d/%d)\n", i.name, r.opcodes, r.calls, r.jumps);
 			jumps += r.jumps;
 			calls += r.calls;
 			opcodes += r.opcodes;
@@ -72,8 +72,8 @@ template <typename POLICY> void checkCode() {
 	printf("### AVG OPCODES: %d TOTAL OPS/CALLS/JUMPS: %d/%d/%d\n", opcodes / count, opcodes,calls, jumps);
 }
 
-void checkAllCode() {
-	checkCode<sixfive::DefaultPolicy>();
+void checkAllCode(bool dis) {
+	checkCode<sixfive::DefaultPolicy>(dis);
 }
 
 /*

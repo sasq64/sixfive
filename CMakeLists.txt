@@ -20,7 +20,8 @@ set(SOURCE_FILES
 
 add_subdirectory(zyan-disassembler-engine)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Wno-error=deprecated-declarations -O2 -march=native -std=c++17")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Wno-error=deprecated-declarations -O2 -fno-omit-frame-pointer -march=native -std=c++17")
+
 include_directories(. /usr/local/include ${APONE})
 
 add_definitions(-DUSE_APONE -DSIMPLE_LOG)

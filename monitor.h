@@ -10,6 +10,7 @@
 
 namespace sixfive {
 
+// clang-format on
 constexpr static const char* modeTemplate[] = { 
 	"",
 	"",
@@ -33,6 +34,7 @@ constexpr static const char* modeTemplate[] = {
 	"$%04x,x",
 	"$%04x,y",
 };
+// clang-format off
 
 std::string disasm(uint16_t &org, uint8_t* mem) {
 
@@ -51,7 +53,7 @@ std::string disasm(uint16_t &org, uint8_t* mem) {
 				org += (mem - orgmem);
 				if(op.mode == NONE)
 					return ins.name;
-				return ins.name + " " + utils::format(modeTemplate[op.mode], v);
+				return std::string(ins.name) + " " + utils::format(modeTemplate[op.mode], v);
 			}
 		}
 	}
