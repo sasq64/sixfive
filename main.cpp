@@ -13,6 +13,9 @@
 #include <tuple>
 #include <unordered_map>
 
+#include <bbsutils/console.h>
+#include <bbsutils/editor.h>
+
 // clang-format off
 constexpr static const char* modeNames[] = { 
 	"ILLEGAL",
@@ -44,30 +47,64 @@ constexpr static const char* modeNames[] = {
 struct DebugPolicy : public sixfive::DefaultPolicy
 {
 
-    static void checkEffect(sixfive::Machine<DebugPolicy>& m)
+    using Machine = sixfive::Machine<DebugPolicy>;
+
+    static constexpr uint16_t IOMASK = 0xf0;
+    static constexpr uint16_t IOBANK = 0xd0;
+
+
+    Machine& machine;
+
+    bbs::Console* console;
+
+    DebugPolicy(Machine& m) : machine(m) {
+        using namespace bbs;
+        using namespace utils;
+        console = Console::createLocalConsole();
+    }
+
+    template <typename ... ARGS>
+    void print(const std::string& fmt, ARGS ... params) {
+        auto s = utils::format(fmt, params...);
+        console->write(s);
+    };
+
+    static inline constexpr void writeIO(Machine& m, uint16_t adr, uint8_t v) {
+        //m.policy().print("Wrote %04x := %02x\n", adr, v);
+        auto* console = m.policy().console;
+        int x = (adr - 0xd000) % 40; 
+        int y = (adr - 0xd000) / 40; 
+        console->put(x, y, v);
+        console->flush();
+    }
+    static inline constexpr uint8_t readIO(Machine&, uint16_t adr)
+    {
+        return 0;
+    }
+    void checkEffect(Machine& m)
     {
         static sixfive::Machine<DebugPolicy> om;
         if (om.regPC() != 0) {
             // if(om.pc != m.pc)
-            printf("%04x : ", (unsigned)om.regPC());
-            printf("[ ");
-            if (om.regA() != m.regA()) printf("A:%02x ", m.regA());
-            if (om.regX() != m.regX()) printf("X:%02x ", m.regX());
-            if (om.regY() != m.regY()) printf("Y:%02x ", m.regY());
-            if (om.regSR() != m.regSR()) printf("SR:%02x ", m.regSR());
-            if (om.regSP() != m.regSP()) printf("SP:%02x ", m.regSP());
+            print("%04x : ", (unsigned)om.regPC());
+            print("[ ");
+            if (om.regA() != m.regA()) print("A:%02x ", m.regA());
+            if (om.regX() != m.regX()) print("X:%02x ", m.regX());
+            if (om.regY() != m.regY()) print("Y:%02x ", m.regY());
+            if (om.regSR() != m.regSR()) print("SR:%02x ", m.regSR());
+            if (om.regSP() != m.regSP()) print("SP:%02x ", m.regSP());
             bool first = true;
             for (int i = 0; i < 65536; i++)
                 if (m.Ram(i) != om.Ram(i)) {
-                    if (!first) printf(" # ");
+                    if (!first) print(" # ");
                     first = false;
-                    printf("%04x: ", i);
+                    print("%04x: ", i);
                     while (m.Ram(i) != om.Ram(i)) {
-                        printf("%02x ", m.Ram(i) & 0xff);
+                        print("%02x ", m.Ram(i) & 0xff);
                         om.Ram(i) = m.Ram(i);
                     }
                 }
-            printf("]\n");
+            print("]\n");
         } else {
             for (int i = 0; i < 65536; i++)
                 om.Ram(i) = m.Ram(i);
@@ -75,32 +112,29 @@ struct DebugPolicy : public sixfive::DefaultPolicy
         om.regs() = m.regs();
     }
 
-    std::unordered_map<uint16_t,
-                       std::function<void(sixfive::Machine<DebugPolicy>& m)>>
-        breaks;
+    std::unordered_map<uint16_t, std::function<void(Machine& m)>> breaks;
 
-    void set_break(uint16_t pc,
-                   std::function<void(sixfive::Machine<DebugPolicy>& m)> f)
+    void set_break(uint16_t pc, std::function<void(Machine& m)> f)
     {
         breaks[pc] = std::move(f);
     }
 
-    static bool doTrace;
+    inline static bool doTrace = false;
 
-    static bool eachOp(sixfive::Machine<DebugPolicy>& m)
+    static bool eachOp(Machine& m)
     {
         static int lastpc = -1;
-        if (doTrace) checkEffect(m);
+        if (doTrace) m.policy().checkEffect(m);
         if (m.regPC() == lastpc) {
-            printf("STALL\n");
+            m.policy().print("STALL\n");
             return true;
         }
         lastpc = m.regPC();
         return false;
     }
+
 };
 
-bool DebugPolicy::doTrace = false;
 
 struct CheckPolicy : public sixfive::DefaultPolicy
 {
@@ -114,7 +148,7 @@ struct CheckPolicy : public sixfive::DefaultPolicy
             for (int i = 0; i < 256; i++)
                 printf("%02x ", m.Stack(i));
             printf("\n");
-            monitor(m);
+            //monitor(m);
 
             return true;
         }
@@ -179,14 +213,16 @@ int main(int argc, char** argv)
         printf("Running full 6502 test...\n");
         utils::File f{"6502test.bin"};
         auto data = f.readAll();
-        data[0x3af8] = 0x60;
+        data[0x3b91] = 0x60;
         Machine<CheckPolicy> m;
         m.writeRam(0, &data[0], 0x10000);
         m.setPC(0x1000);
         m.run(1000000000);
         printf("Done.\n");
-        return 0;
     }
+
+    if(runFullTest || doBenchmarks || checkOpcodes)
+        return 0;
 
     Machine<DebugPolicy> m;
 

@@ -24,7 +24,8 @@ enum AdressingMode
     IND,
     ABS,
     ABSX,
-    ABSY
+    ABSY,
+
 };
 
 struct BaseM
@@ -49,10 +50,7 @@ struct DefaultPolicy
     static constexpr int MemSize = 65536;
 
     static inline constexpr void writeIO(BaseM&, uint16_t adr, uint8_t v) {}
-    static inline constexpr uint8_t readIO(const BaseM&, uint16_t adr)
-    {
-        return 0;
-    }
+    static inline constexpr uint8_t readIO(BaseM&, uint16_t adr) { return 0; }
 
     static inline constexpr bool eachOp(BaseM&) { return false; }
 };
@@ -61,13 +59,14 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
 {
     enum REGNAME
     {
-        NOREG = 20,
-        A,
+        A = 20,
         X,
         Y,
         SP,
         SR
     };
+
+    template <int MODE> constexpr static bool IsReg() { return MODE >= A; }
 
     enum STATUSFLAGS
     {
@@ -125,17 +124,22 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
             for (int i = 0; i < 256; i++)
                 rbank[i] = wbank[i] = &ram[i * 256];
         }
-        for (const auto& i : getInstructions()) {
+        for (const auto& i : getInstructions<false>()) {
             for (const auto& o : i.opcodes) {
-                jumpTable[o.code] = o;
+                jumpTable_normal[o.code] = o;
                 opNames[o.code] = i.name;
             }
         }
+        for (const auto& i : getInstructions<true>()) {
+            for (const auto& o : i.opcodes)
+                jumpTable_bcd[o.code] = o;
+        }
+        jumpTable = &jumpTable_normal[0];
     }
 
     POLICY& policy()
     {
-        static POLICY policy;
+        static POLICY policy(*this);
         return policy;
     }
 
@@ -191,9 +195,6 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
         }
     }
 
-    auto regs() const { return std::make_tuple(a, x, y, sr, sp, pc); }
-    auto regs() { return std::tie(a, x, y, sr, sp, pc); }
-
     Word regA() const { return a; }
     Word regX() const { return x; }
     Word regY() const { return y; }
@@ -225,10 +226,8 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
         return opcodes;
     }
 
-    static const std::vector<Instruction>& getInstructions()
-    {
-        return instructionTable;
-    }
+    auto regs() const { return std::make_tuple(a, x, y, sr, sp, pc); }
+    auto regs() { return std::tie(a, x, y, sr, sp, pc); }
 
 private:
     // The 6502 registers
@@ -253,7 +252,9 @@ private:
     uint32_t cycles;
 
     // All opcodes
-    std::array<Opcode, 256> jumpTable;
+    std::array<Opcode, 256> jumpTable_normal;
+    std::array<Opcode, 256> jumpTable_bcd;
+    const Opcode* jumpTable;
     std::array<const char*, 256> opNames;
 
     static constexpr Word lo(Adr a) { return a & 0xff; }
@@ -321,7 +322,7 @@ private:
         }
     }
 
-    template <int REG> const auto& Reg() const
+    template <int REG> constexpr auto& Reg() const
     {
         if constexpr (REG == A) return a;
         if constexpr (REG == X) return x;
@@ -350,6 +351,7 @@ private:
     {
         C = 0x1,
         Z = 0x2,
+        d_FLAG = 0x8,
         V = 0x40,
         S = 0x80,
     };
@@ -360,7 +362,27 @@ private:
 
     uint8_t get_SR() const { return sr; }
 
-    void set_SR(uint8_t s) { sr = s | 0x30; }
+    uint8_t lastSR = 0; // Only for the D bit
+
+    template <bool DEC> void setDec()
+    {
+        if constexpr (DEC)
+            jumpTable = &jumpTable_bcd[0];
+        else
+            jumpTable = &jumpTable_normal[0];
+    }
+
+    void set_SR(uint8_t s)
+    {
+        if ((s ^ sr) & d_FLAG) { // D bit changed
+            if (s & d_FLAG) {
+                setDec<true>();
+            } else {
+                setDec<false>();
+            }
+        }
+        sr = s | 0x30;
+    }
 
     template <int BITS> void set(int res, int arg = 0)
     {
@@ -378,12 +400,12 @@ private:
         sr = (sr & ~SZ) | (Reg<REG>() & 0x80) | (!Reg<REG>() << 1);
     }
 
-    template <int FLAG> int check() const { return sr & (1 << FLAG); }
+    template <int FLAG> constexpr int check() const { return sr & (1 << FLAG); }
 
     static constexpr bool SET = true;
     static constexpr bool CLEAR = false;
 
-    template <int FLAG, bool v> bool check() const
+    template <int FLAG, bool v> constexpr bool check() const
     {
         return (bool)(sr & (1 << FLAG)) == v;
     }
@@ -416,7 +438,7 @@ private:
         return *(uint16_t*)&ram[a] + offs;
     }
 
-    Word Read(uint16_t adr) const
+    Word Read(uint16_t adr)
     {
         if ((hi(adr) & POLICY::IOMASK) == POLICY::IOBANK)
             return POLICY::readIO(*this, adr);
@@ -473,6 +495,7 @@ private:
 
     template <int FLAG, bool v> static constexpr void Set(Machine& m)
     {
+        if constexpr (FLAG == DECIMAL) m.setDec<v>();
         m.sr = (m.sr & ~(1 << FLAG)) | (v << FLAG);
     }
 
@@ -497,7 +520,7 @@ private:
 
     template <int MODE, int inc> static constexpr void Inc(Machine& m)
     {
-        if constexpr(MODE >= A) {
+        if constexpr (IsReg<MODE>()) {
             m.Reg<MODE>() = (m.Reg<MODE>() + inc) & 0xff;
             m.set_SZ<MODE>();
         } else {
@@ -523,18 +546,36 @@ private:
         m.set<SZC>(rc);
     }
 
-    template <int MODE> static constexpr void Sbc(Machine& m)
+    template <int MODE, bool DEC = false> static constexpr void Sbc(Machine& m)
     {
-        Word z = (~m.LoadEA<MODE>()) & 0xff;
-        int rc = m.a + z + m.check<CARRY>();
-        m.set<SZCV>(rc, z);
-        m.a = rc & 0xff;
+        if constexpr (DEC) {
+            unsigned z = m.LoadEA<MODE>();
+            auto al = (m.a & 0xf) - (z & 0xf) + (m.check<CARRY>() - 1);
+            auto ah = (m.a >> 4) - (z >> 4);
+            if (al & 0x10) {
+                al = (al - 6) & 0xf;
+                ah--;
+            }
+            if (ah & 0x10) ah = (ah - 6) & 0xf;
+            unsigned rc = m.a - z + (m.check<CARRY>() - 1);
+            m.set<SZCV>(rc ^ 0x100, z);
+            m.a = al | (ah << 4);
+        } else {
+            unsigned z = (~m.LoadEA<MODE>()) & 0xff;
+            unsigned rc = m.a + z + m.check<CARRY>();
+            m.set<SZCV>(rc, z);
+            m.a = rc & 0xff;
+        }
     }
 
-    template <int MODE> static constexpr void Adc(Machine& m)
+    template <int MODE, bool DEC = false> static constexpr void Adc(Machine& m)
     {
-        auto z = m.LoadEA<MODE>();
-        int rc = m.a + z + m.check<CARRY>();
+        unsigned z = m.LoadEA<MODE>();
+        unsigned rc = m.a + z + m.check<CARRY>();
+        if constexpr (DEC) {
+            if (((m.a & 0xf) + (z & 0xf) + m.check<CARRY>()) >= 10) rc += 6;
+            if ((rc & 0xff0) > 0x90) rc += 0x60;
+        }
         m.set<SZCV>(rc, z);
         m.a = rc & 0xff;
     }
@@ -561,7 +602,7 @@ private:
 
     template <int MODE> static constexpr void Asl(Machine& m)
     {
-        if constexpr (MODE == ACC) {
+        if constexpr (MODE == A) {
             int rc = m.a << 1;
             m.set<SZC>(rc);
             m.a = rc & 0xff;
@@ -575,7 +616,7 @@ private:
 
     template <int MODE> static constexpr void Lsr(Machine& m)
     {
-        if constexpr (MODE == ACC) {
+        if constexpr (MODE == A) {
             m.sr = (m.sr & 0xfe) | (m.a & 1);
             m.a >>= 1;
             m.set_SZ<A>();
@@ -591,42 +632,39 @@ private:
 
     template <int MODE> static constexpr void Ror(Machine& m)
     {
-        auto adr = m.ReadEA<MODE>();
-        unsigned rc = m.Read(adr) | (m.sr << 8);
-        m.sr = (m.sr & 0xfe) | (rc & 1);
-        rc >>= 1;
-        m.Write(adr, rc);
-        m.set<SZ>(rc);
-    }
-
-    static constexpr void RorA(Machine& m)
-    {
-        unsigned rc = ((m.sr << 8) | m.a) >> 1;
-        m.sr = (m.sr & 0xfe) | (m.a & 1);
-        m.a = rc & 0xff;
-        m.set_SZ<A>();
+        if constexpr (MODE == A) {
+            unsigned rc = ((m.sr << 8) | m.a) >> 1;
+            m.sr = (m.sr & 0xfe) | (m.a & 1);
+            m.a = rc & 0xff;
+            m.set_SZ<A>();
+        } else {
+            auto adr = m.ReadEA<MODE>();
+            unsigned rc = m.Read(adr) | (m.sr << 8);
+            m.sr = (m.sr & 0xfe) | (rc & 1);
+            rc >>= 1;
+            m.Write(adr, rc);
+            m.set<SZ>(rc);
+        }
     }
 
     template <int MODE> static constexpr void Rol(Machine& m)
     {
-        auto adr = m.ReadEA<MODE>();
-        unsigned rc = (m.Read(adr) << 1) | m.check<CARRY>();
-        m.Write(adr, rc);
-        m.set<SZC>(rc);
+        if constexpr (MODE == A) {
+            unsigned rc = (m.a << 1) | m.check<CARRY>();
+            m.set<SZC>(rc);
+            m.a = rc & 0xff;
+        } else {
+            auto adr = m.ReadEA<MODE>();
+            unsigned rc = (m.Read(adr) << 1) | m.check<CARRY>();
+            m.Write(adr, rc);
+            m.set<SZC>(rc);
+        }
     }
 
-    static constexpr void RolA(Machine& m)
-    {
-        unsigned rc = (m.a << 1) | m.check<CARRY>();
-        m.set<SZC>(rc);
-        m.a = rc & 0xff;
-    }
-
-    template <int FROM, int TO>
-    static constexpr void Transfer(Machine& m)
+    template <int FROM, int TO> static constexpr void Transfer(Machine& m)
     {
         m.Reg<TO>() = m.Reg<FROM>();
-        if constexpr(TO != SP) m.set_SZ<TO>();
+        if constexpr (TO != SP) m.set_SZ<TO>();
     }
 
     /////////////////////////////////////////////////////////////////////////
@@ -635,281 +673,287 @@ private:
     ///
     /////////////////////////////////////////////////////////////////////////
 
-    static const inline std::vector<Instruction> instructionTable = {
+public:
+    template <bool USE_BCD = false>
+    static const std::vector<Instruction>& getInstructions()
+    {
+        static const  std::vector<Instruction> instructionTable = {
 
-        {"nop", {{ 0xea, 2, NONE, [](Machine& ) {} }} },
+            {"nop", {{ 0xea, 2, NONE, [](Machine& ) {} }} },
 
-        {"lda", {
-            { 0xa9, 2, IMM, Load<A, IMM>},
-            { 0xa5, 2, ZP, Load<A, ZP>},
-            { 0xb5, 4, ZPX, Load<A, ZPX>},
-            { 0xad, 4, ABS, Load<A, ABS>},
-            { 0xbd, 4, ABSX, Load<A, ABSX>},
-            { 0xb9, 4, ABSY, Load<A, ABSY>},
-            { 0xa1, 6, INDX, Load<A, INDX>},
-            { 0xb1, 5, INDY, Load<A, INDY>},
-        } },
-
-        {"ldx", {
-            { 0xa2, 2, IMM, Load<X, IMM>},
-            { 0xa6, 3, ZP, Load<X, ZP>},
-            { 0xb6, 4, ZPY, Load<X, ZPY>},
-            { 0xae, 4, ABS, Load<X, ABS>},
-            { 0xbe, 4, ABSY, Load<X, ABSY>},
-        } },
-
-        {"ldy", {
-            { 0xa0, 2, IMM, Load<Y, IMM>},
-            { 0xa4, 3, ZP, Load<Y, ZP>},
-            { 0xb4, 4, ZPX, Load<Y, ZPX>},
-            { 0xac, 4, ABS, Load<Y, ABS>},
-            { 0xbc, 4, ABSX, Load<Y, ABSX>},
-        } },
-
-        {"sta", {
-            { 0x85, 3, ZP, Store<A, ZP>},
-            { 0x95, 4, ZPX, Store<A, ZPX>},
-            { 0x8d, 4, ABS, Store<A, ABS>},
-            { 0x9d, 4, ABSX, Store<A, ABSX>},
-            { 0x99, 4, ABSY, Store<A, ABSY>},
-            { 0x81, 6, INDX, Store<A, INDX>},
-            { 0x91, 5, INDY, Store<A, INDY>},
-        } },
-
-        {"stx", {
-            { 0x86, 3, ZP, Store<X, ZP>},
-            { 0x96, 4, ZPY, Store<X, ZPY>},
-            { 0x8e, 4, ABS, Store<X, ABS>},
-        } },
-
-        {"sty", {
-            { 0x84, 3, ZP, Store<Y, ZP>},
-            { 0x94, 4, ZPX, Store<Y, ZPX>},
-            { 0x8c, 4, ABS, Store<Y, ABS>},
-        } },
-
-        {"dec", {
-            { 0xc6, 5, ZP, Inc<ZP, -1>},
-            { 0xd6, 6, ZPX, Inc<ZPX, -1>},
-            { 0xce, 6, ABS, Inc<ABS, -1>},
-            { 0xde, 7, ABSX, Inc<ABSX, -1>},
-        } },
-
-        {"inc", {
-            { 0xe6, 5, ZP, Inc<ZP, 1>},
-            { 0xf6, 6, ZPX, Inc<ZPX, 1>},
-            { 0xee, 6, ABS, Inc<ABS, 1>},
-            { 0xfe, 7, ABSX, Inc<ABSX, 1>},
-        } },
-
-        { "tax", { { 0xaa, 2, NONE, Transfer<A, X> } } },
-        { "txa", { { 0x8a, 2, NONE, Transfer<X, A> } } },
-        { "tay", { { 0xa8, 2, NONE, Transfer<A, Y> } } },
-        { "tya", { { 0x98, 2, NONE, Transfer<Y, A> } } },
-        { "txs", { { 0x9a, 2, NONE, Transfer<X, SP> } } },
-        { "tsx", { { 0xba, 2, NONE, Transfer<SP, X> } } },
-
-        { "dex", { { 0xca, 2, NONE, Inc<X, -1> } } },
-        { "inx", { { 0xe8, 2, NONE, Inc<X, 1> } } },
-        { "dey", { { 0x88, 2, NONE, Inc<Y, -1> } } },
-        { "iny", { { 0xc8, 2, NONE, Inc<Y, 1> } } },
-
-        { "pha", { { 0x48, 3, NONE, [](Machine& m) {
-            m.stack[m.sp--] = m.a;
-        } } } },
-
-        { "pla", { { 0x68, 4, NONE, [](Machine& m) {
-            m.a = m.stack[++m.sp];
-        } } } },
-
-        { "php", { { 0x08, 3, NONE, [](Machine& m) {
-            m.stack[m.sp--] = m.get_SR();
-        } } } },
-
-        { "plp", { { 0x28, 4, NONE, [](Machine& m) {
-            m.set_SR(m.stack[++m.sp]);
-        } } } },
-
-        { "bcc", { { 0x90, 2, REL, Branch<CARRY, CLEAR> }, } },
-        { "bcs", { { 0xb0, 2, REL, Branch<CARRY, SET> }, } },
-        { "bne", { { 0xd0, 2, REL, Branch<ZERO, CLEAR> }, } },
-        { "beq", { { 0xf0, 2, REL, Branch<ZERO, SET> }, } },
-        { "bpl", { { 0x10, 2, REL, Branch<SIGN, CLEAR> }, } },
-        { "bmi", { { 0x30, 2, REL, Branch<SIGN, SET> }, } },
-        { "bvc", { { 0x50, 2, REL, Branch<OVER, CLEAR> }, } },
-        { "bvs", { { 0x70, 2, REL, Branch<OVER, SET> }, } },
-
-        { "adc", {
-            { 0x69, 2, IMM, Adc<IMM>},
-            { 0x65, 3, ZP, Adc<ZP>},
-            { 0x75, 4, ZPX, Adc<ZPX>},
-            { 0x6d, 4, ABS, Adc<ABS>},
-            { 0x7d, 4, ABSX, Adc<ABSX>},
-            { 0x79, 4, ABSY, Adc<ABSY>},
-            { 0x61, 6, INDX, Adc<INDX>},
-            { 0x71, 5, INDY, Adc<INDY>},
-        } },
-
-        { "sbc", {
-            { 0xe9, 2, IMM, Sbc<IMM>},
-            { 0xe5, 3, ZP, Sbc<ZP>},
-            { 0xf5, 4, ZPX, Sbc<ZPX>},
-            { 0xed, 4, ABS, Sbc<ABS>},
-            { 0xfd, 4, ABSX, Sbc<ABSX>},
-            { 0xf9, 4, ABSY, Sbc<ABSY>},
-            { 0xe1, 6, INDX, Sbc<INDX>},
-            { 0xf1, 5, INDY, Sbc<INDY>},
-        } },
-
-        { "cmp", {
-            { 0xc9, 2, IMM, Cmp<A, IMM>},
-            { 0xc5, 3, ZP, Cmp<A, ZP>},
-            { 0xd5, 4, ZPX, Cmp<A, ZPX>},
-            { 0xcd, 4, ABS, Cmp<A, ABS>},
-            { 0xdd, 4, ABSX, Cmp<A, ABSX>},
-            { 0xd9, 4, ABSY, Cmp<A, ABSY>},
-            { 0xc1, 6, INDX, Cmp<A, INDX>},
-            { 0xd1, 5, INDY, Cmp<A, INDY>},
-        } },
-
-        { "cpx", {
-            { 0xe0, 2, IMM, Cmp<X, IMM>},
-            { 0xe4, 3, ZP, Cmp<X, ZP>},
-            { 0xec, 4, ABS, Cmp<X, ABS>},
-        } },
-
-        { "cpy", {
-            { 0xc0, 2, IMM, Cmp<Y, IMM>},
-            { 0xc4, 3, ZP, Cmp<Y, ZP>},
-            { 0xcc, 4, ABS, Cmp<Y, ABS>},
-        } },
-
-        { "and", {
-            { 0x29, 2, IMM, And<IMM>},
-            { 0x25, 3, ZP, And<ZP>},
-            { 0x35, 4, ZPX, And<ZPX>},
-            { 0x2d, 4, ABS, And<ABS>},
-            { 0x3d, 4, ABSX, And<ABSX>},
-            { 0x39, 4, ABSY, And<ABSY>},
-            { 0x21, 6, INDX, And<INDX>},
-            { 0x31, 5, INDY, And<INDY>},
-        } },
-
-        { "eor", {
-            { 0x49, 2, IMM, Eor<IMM>},
-            { 0x45, 3, ZP, Eor<ZP>},
-            { 0x55, 4, ZPX, Eor<ZPX>},
-            { 0x4d, 4, ABS, Eor<ABS>},
-            { 0x5d, 4, ABSX, Eor<ABSX>},
-            { 0x59, 4, ABSY, Eor<ABSY>},
-            { 0x41, 6, INDX, Eor<INDX>},
-            { 0x51, 5, INDY, Eor<INDY>},
-        } },
-
-        { "ora", {
-            { 0x09, 2, IMM, Ora<IMM>},
-            { 0x05, 3, ZP, Ora<ZP>},
-            { 0x15, 4, ZPX, Ora<ZPX>},
-            { 0x0d, 4, ABS, Ora<ABS>},
-            { 0x1d, 4, ABSX, Ora<ABSX>},
-            { 0x19, 4, ABSY, Ora<ABSY>},
-            { 0x01, 6, INDX, Ora<INDX>},
-            { 0x11, 5, INDY, Ora<INDY>},
-        } },
-
-        { "sec", { { 0x38, 2, NONE, Set<CARRY, true> } } },
-        { "clc", { { 0x18, 2, NONE, Set<CARRY, false> } } },
-        { "sei", { { 0x58, 2, NONE, Set<IRQ, true> } } },
-        { "cli", { { 0x78, 2, NONE, Set<IRQ, false> } } },
-        { "sed", { { 0xf8, 2, NONE, Set<DECIMAL, true> } } },
-        { "cld", { { 0xd8, 2, NONE, Set<DECIMAL, false> } } },
-        { "clv", { { 0xb8, 2, NONE, Set<OVER, false> } } },
-
-        { "lsr", {
-            { 0x4a, 2, NONE, Lsr<ACC>},
-            { 0x4a, 2, ACC, Lsr<ACC>},
-            { 0x46, 5, ZP, Lsr<ZP>},
-            { 0x56, 6, ZPX, Lsr<ZPX>},
-            { 0x4e, 6, ABS, Lsr<ABS>},
-            { 0x5e, 7, ABSX, Lsr<ABSX>},
-        } },
-
-        { "asl", {
-            { 0x0a, 2, NONE, Asl<ACC>},
-            { 0x0a, 2, ACC, Asl<ACC>},
-            { 0x06, 5, ZP, Asl<ZP>},
-            { 0x16, 6, ZPX, Asl<ZPX>},
-            { 0x0e, 6, ABS, Asl<ABS>},
-            { 0x1e, 7, ABSX, Asl<ABSX>},
-        } },
-
-        { "ror", {
-            { 0x6a, 2, NONE, RorA},
-            { 0x6a, 2, ACC, RorA},
-            { 0x66, 5, ZP, Ror<ZP>},
-            { 0x76, 6, ZPX, Ror<ZPX>},
-            { 0x6e, 6, ABS, Ror<ABS>},
-            { 0x7e, 7, ABSX, Ror<ABSX>},
-        } },
-
-        { "rol", {
-            { 0x2a, 2, NONE, RolA},
-            { 0x2a, 2, ACC, RolA},
-            { 0x26, 5, ZP, Rol<ZP>},
-            { 0x36, 6, ZPX, Rol<ZPX>},
-            { 0x2e, 6, ABS, Rol<ABS>},
-            { 0x3e, 7, ABSX, Rol<ABSX>},
-        } },
-
-        { "bit", {
-            { 0x24, 3, ZP, Bit<X, ZP>},
-            { 0x2c, 4, ABS, Bit<X, ABS>},
-        } },
-
-        { "rti", {
-            { 0x40, 6, NONE, [](Machine& m) {
-                m.set_SR(m.stack[++m.sp]);// & !(1<<BRK));
-                m.pc = (m.stack[m.sp+1] | (m.stack[m.sp+2]<<8));
-                m.sp += 2;
-            } }
-        } },
-
-        { "brk", {
-            { 0x00, 7, NONE, [](Machine& m) {
-                m.ReadPC();
-                m.stack[m.sp--] = m.pc >> 8;
-                m.stack[m.sp--] = m.pc & 0xff;
-                m.stack[m.sp--] = m.get_SR();// | (1<<BRK);
-                m.pc = m.Read16(m.to_adr(0xfe, 0xff));
-            } }
-        } },
-
-        { "rts", {
-            { 0x60, 6, NONE, [](Machine& m) {
-                m.pc = (m.stack[m.sp+1] | (m.stack[m.sp+2]<<8))+1;
-                m.sp += 2;
-            } }
-        } },
-
-        { "jmp", {
-            { 0x4c, 3, ABS, [](Machine& m) {
-                m.pc = m.ReadPC16();
+            {"lda", {
+                { 0xa9, 2, IMM, Load<A, IMM>},
+                { 0xa5, 2, ZP, Load<A, ZP>},
+                { 0xb5, 4, ZPX, Load<A, ZPX>},
+                { 0xad, 4, ABS, Load<A, ABS>},
+                { 0xbd, 4, ABSX, Load<A, ABSX>},
+                { 0xb9, 4, ABSY, Load<A, ABSY>},
+                { 0xa1, 6, INDX, Load<A, INDX>},
+                { 0xb1, 5, INDY, Load<A, INDY>},
             } },
-            { 0x6c, 5, IND, [](Machine& m) {
-                auto a = m.ReadPC16();
-                m.pc = m.Read16(a);
-            } }
-        } },
 
-        { "jsr", {
-            { 0x20, 6, ABS, [](Machine& m) {
-                m.stack[m.sp--] = (m.pc+1U) >> 8;
-                m.stack[m.sp--] = (m.pc+1) & 0xffU;
-                m.pc = m.ReadPC16();
-            } }
-        } },
+            {"ldx", {
+                { 0xa2, 2, IMM, Load<X, IMM>},
+                { 0xa6, 3, ZP, Load<X, ZP>},
+                { 0xb6, 4, ZPY, Load<X, ZPY>},
+                { 0xae, 4, ABS, Load<X, ABS>},
+                { 0xbe, 4, ABSY, Load<X, ABSY>},
+            } },
 
-	};
+            {"ldy", {
+                { 0xa0, 2, IMM, Load<Y, IMM>},
+                { 0xa4, 3, ZP, Load<Y, ZP>},
+                { 0xb4, 4, ZPX, Load<Y, ZPX>},
+                { 0xac, 4, ABS, Load<Y, ABS>},
+                { 0xbc, 4, ABSX, Load<Y, ABSX>},
+            } },
+
+            {"sta", {
+                { 0x85, 3, ZP, Store<A, ZP>},
+                { 0x95, 4, ZPX, Store<A, ZPX>},
+                { 0x8d, 4, ABS, Store<A, ABS>},
+                { 0x9d, 4, ABSX, Store<A, ABSX>},
+                { 0x99, 4, ABSY, Store<A, ABSY>},
+                { 0x81, 6, INDX, Store<A, INDX>},
+                { 0x91, 5, INDY, Store<A, INDY>},
+            } },
+
+            {"stx", {
+                { 0x86, 3, ZP, Store<X, ZP>},
+                { 0x96, 4, ZPY, Store<X, ZPY>},
+                { 0x8e, 4, ABS, Store<X, ABS>},
+            } },
+
+            {"sty", {
+                { 0x84, 3, ZP, Store<Y, ZP>},
+                { 0x94, 4, ZPX, Store<Y, ZPX>},
+                { 0x8c, 4, ABS, Store<Y, ABS>},
+            } },
+
+            {"dec", {
+                { 0xc6, 5, ZP, Inc<ZP, -1>},
+                { 0xd6, 6, ZPX, Inc<ZPX, -1>},
+                { 0xce, 6, ABS, Inc<ABS, -1>},
+                { 0xde, 7, ABSX, Inc<ABSX, -1>},
+            } },
+
+            {"inc", {
+                { 0xe6, 5, ZP, Inc<ZP, 1>},
+                { 0xf6, 6, ZPX, Inc<ZPX, 1>},
+                { 0xee, 6, ABS, Inc<ABS, 1>},
+                { 0xfe, 7, ABSX, Inc<ABSX, 1>},
+            } },
+
+            { "tax", { { 0xaa, 2, NONE, Transfer<A, X> } } },
+            { "txa", { { 0x8a, 2, NONE, Transfer<X, A> } } },
+            { "tay", { { 0xa8, 2, NONE, Transfer<A, Y> } } },
+            { "tya", { { 0x98, 2, NONE, Transfer<Y, A> } } },
+            { "txs", { { 0x9a, 2, NONE, Transfer<X, SP> } } },
+            { "tsx", { { 0xba, 2, NONE, Transfer<SP, X> } } },
+
+            { "dex", { { 0xca, 2, NONE, Inc<X, -1> } } },
+            { "inx", { { 0xe8, 2, NONE, Inc<X, 1> } } },
+            { "dey", { { 0x88, 2, NONE, Inc<Y, -1> } } },
+            { "iny", { { 0xc8, 2, NONE, Inc<Y, 1> } } },
+
+            { "pha", { { 0x48, 3, NONE, [](Machine& m) {
+                m.stack[m.sp--] = m.a;
+            } } } },
+
+            { "pla", { { 0x68, 4, NONE, [](Machine& m) {
+                m.a = m.stack[++m.sp];
+            } } } },
+
+            { "php", { { 0x08, 3, NONE, [](Machine& m) {
+                m.stack[m.sp--] = m.get_SR();
+            } } } },
+
+            { "plp", { { 0x28, 4, NONE, [](Machine& m) {
+                m.set_SR(m.stack[++m.sp]);
+            } } } },
+
+            { "bcc", { { 0x90, 2, REL, Branch<CARRY, CLEAR> }, } },
+            { "bcs", { { 0xb0, 2, REL, Branch<CARRY, SET> }, } },
+            { "bne", { { 0xd0, 2, REL, Branch<ZERO, CLEAR> }, } },
+            { "beq", { { 0xf0, 2, REL, Branch<ZERO, SET> }, } },
+            { "bpl", { { 0x10, 2, REL, Branch<SIGN, CLEAR> }, } },
+            { "bmi", { { 0x30, 2, REL, Branch<SIGN, SET> }, } },
+            { "bvc", { { 0x50, 2, REL, Branch<OVER, CLEAR> }, } },
+            { "bvs", { { 0x70, 2, REL, Branch<OVER, SET> }, } },
+
+            { "adc", {
+                { 0x69, 2, IMM, Adc<IMM, USE_BCD>},
+                { 0x65, 3, ZP, Adc<ZP, USE_BCD>},
+                { 0x75, 4, ZPX, Adc<ZPX, USE_BCD>},
+                { 0x6d, 4, ABS, Adc<ABS, USE_BCD>},
+                { 0x7d, 4, ABSX, Adc<ABSX, USE_BCD>},
+                { 0x79, 4, ABSY, Adc<ABSY, USE_BCD>},
+                { 0x61, 6, INDX, Adc<INDX, USE_BCD>},
+                { 0x71, 5, INDY, Adc<INDY, USE_BCD>},
+            } },
+
+            { "sbc", {
+                { 0xe9, 2, IMM, Sbc<IMM, USE_BCD>},
+                { 0xe5, 3, ZP, Sbc<ZP, USE_BCD>},
+                { 0xf5, 4, ZPX, Sbc<ZPX, USE_BCD>},
+                { 0xed, 4, ABS, Sbc<ABS, USE_BCD>},
+                { 0xfd, 4, ABSX, Sbc<ABSX, USE_BCD>},
+                { 0xf9, 4, ABSY, Sbc<ABSY, USE_BCD>},
+                { 0xe1, 6, INDX, Sbc<INDX, USE_BCD>},
+                { 0xf1, 5, INDY, Sbc<INDY, USE_BCD>},
+            } },
+
+            { "cmp", {
+                { 0xc9, 2, IMM, Cmp<A, IMM>},
+                { 0xc5, 3, ZP, Cmp<A, ZP>},
+                { 0xd5, 4, ZPX, Cmp<A, ZPX>},
+                { 0xcd, 4, ABS, Cmp<A, ABS>},
+                { 0xdd, 4, ABSX, Cmp<A, ABSX>},
+                { 0xd9, 4, ABSY, Cmp<A, ABSY>},
+                { 0xc1, 6, INDX, Cmp<A, INDX>},
+                { 0xd1, 5, INDY, Cmp<A, INDY>},
+            } },
+
+            { "cpx", {
+                { 0xe0, 2, IMM, Cmp<X, IMM>},
+                { 0xe4, 3, ZP, Cmp<X, ZP>},
+                { 0xec, 4, ABS, Cmp<X, ABS>},
+            } },
+
+            { "cpy", {
+                { 0xc0, 2, IMM, Cmp<Y, IMM>},
+                { 0xc4, 3, ZP, Cmp<Y, ZP>},
+                { 0xcc, 4, ABS, Cmp<Y, ABS>},
+            } },
+
+            { "and", {
+                { 0x29, 2, IMM, And<IMM>},
+                { 0x25, 3, ZP, And<ZP>},
+                { 0x35, 4, ZPX, And<ZPX>},
+                { 0x2d, 4, ABS, And<ABS>},
+                { 0x3d, 4, ABSX, And<ABSX>},
+                { 0x39, 4, ABSY, And<ABSY>},
+                { 0x21, 6, INDX, And<INDX>},
+                { 0x31, 5, INDY, And<INDY>},
+            } },
+
+            { "eor", {
+                { 0x49, 2, IMM, Eor<IMM>},
+                { 0x45, 3, ZP, Eor<ZP>},
+                { 0x55, 4, ZPX, Eor<ZPX>},
+                { 0x4d, 4, ABS, Eor<ABS>},
+                { 0x5d, 4, ABSX, Eor<ABSX>},
+                { 0x59, 4, ABSY, Eor<ABSY>},
+                { 0x41, 6, INDX, Eor<INDX>},
+                { 0x51, 5, INDY, Eor<INDY>},
+            } },
+
+            { "ora", {
+                { 0x09, 2, IMM, Ora<IMM>},
+                { 0x05, 3, ZP, Ora<ZP>},
+                { 0x15, 4, ZPX, Ora<ZPX>},
+                { 0x0d, 4, ABS, Ora<ABS>},
+                { 0x1d, 4, ABSX, Ora<ABSX>},
+                { 0x19, 4, ABSY, Ora<ABSY>},
+                { 0x01, 6, INDX, Ora<INDX>},
+                { 0x11, 5, INDY, Ora<INDY>},
+            } },
+
+            { "sec", { { 0x38, 2, NONE, Set<CARRY, true> } } },
+            { "clc", { { 0x18, 2, NONE, Set<CARRY, false> } } },
+            { "sei", { { 0x58, 2, NONE, Set<IRQ, true> } } },
+            { "cli", { { 0x78, 2, NONE, Set<IRQ, false> } } },
+            { "sed", { { 0xf8, 2, NONE, Set<DECIMAL, true> } } },
+            { "cld", { { 0xd8, 2, NONE, Set<DECIMAL, false> } } },
+            { "clv", { { 0xb8, 2, NONE, Set<OVER, false> } } },
+
+            { "lsr", {
+                { 0x4a, 2, NONE, Lsr<A>},
+                { 0x4a, 2, ACC, Lsr<A>},
+                { 0x46, 5, ZP, Lsr<ZP>},
+                { 0x56, 6, ZPX, Lsr<ZPX>},
+                { 0x4e, 6, ABS, Lsr<ABS>},
+                { 0x5e, 7, ABSX, Lsr<ABSX>},
+            } },
+
+            { "asl", {
+                { 0x0a, 2, NONE, Asl<A>},
+                { 0x0a, 2, ACC, Asl<A>},
+                { 0x06, 5, ZP, Asl<ZP>},
+                { 0x16, 6, ZPX, Asl<ZPX>},
+                { 0x0e, 6, ABS, Asl<ABS>},
+                { 0x1e, 7, ABSX, Asl<ABSX>},
+            } },
+
+            { "ror", {
+                { 0x6a, 2, NONE, Ror<A>},
+                { 0x6a, 2, ACC, Ror<A>},
+                { 0x66, 5, ZP, Ror<ZP>},
+                { 0x76, 6, ZPX, Ror<ZPX>},
+                { 0x6e, 6, ABS, Ror<ABS>},
+                { 0x7e, 7, ABSX, Ror<ABSX>},
+            } },
+
+            { "rol", {
+                { 0x2a, 2, NONE, Rol<A>},
+                { 0x2a, 2, ACC, Rol<A>},
+                { 0x26, 5, ZP, Rol<ZP>},
+                { 0x36, 6, ZPX, Rol<ZPX>},
+                { 0x2e, 6, ABS, Rol<ABS>},
+                { 0x3e, 7, ABSX, Rol<ABSX>},
+            } },
+
+            { "bit", {
+                { 0x24, 3, ZP, Bit<X, ZP>},
+                { 0x2c, 4, ABS, Bit<X, ABS>},
+            } },
+
+            { "rti", {
+                { 0x40, 6, NONE, [](Machine& m) {
+                    m.set_SR(m.stack[++m.sp]);// & !(1<<BRK));
+                    m.pc = (m.stack[m.sp+1] | (m.stack[m.sp+2]<<8));
+                    m.sp += 2;
+                } }
+            } },
+
+            { "brk", {
+                { 0x00, 7, NONE, [](Machine& m) {
+                    m.ReadPC();
+                    m.stack[m.sp--] = m.pc >> 8;
+                    m.stack[m.sp--] = m.pc & 0xff;
+                    m.stack[m.sp--] = m.get_SR();// | (1<<BRK);
+                    m.pc = m.Read16(m.to_adr(0xfe, 0xff));
+                } }
+            } },
+
+            { "rts", {
+                { 0x60, 6, NONE, [](Machine& m) {
+                    m.pc = (m.stack[m.sp+1] | (m.stack[m.sp+2]<<8))+1;
+                    m.sp += 2;
+                } }
+            } },
+
+            { "jmp", {
+                { 0x4c, 3, ABS, [](Machine& m) {
+                    m.pc = m.ReadPC16();
+                } },
+                { 0x6c, 5, IND, [](Machine& m) {
+                    auto a = m.ReadPC16();
+                    m.pc = m.Read16(a);
+                } }
+            } },
+
+            { "jsr", {
+                { 0x20, 6, ABS, [](Machine& m) {
+                    m.stack[m.sp--] = (m.pc+1U) >> 8;
+                    m.stack[m.sp--] = (m.pc+1) & 0xffU;
+                    m.pc = m.ReadPC16();
+                } }
+            } },
+
+        };
+        return instructionTable;
+    }
 };
 
 } // namespace sixfive

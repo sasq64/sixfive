@@ -5,7 +5,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 set(APONE ../chipmachine/apone/mods)
 
 set(SOURCE_FILES
-	emulator.cpp
 	main.cpp
 	assembler.cpp
 	parser.cpp

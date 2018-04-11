@@ -173,8 +173,7 @@ static void Bench_emulate(benchmark::State &state) {
 	for(int i=0; i<(int)sizeof(WEEK); i++)
 		m.writeRam(0x1000 + i, WEEK[i]);
 	m.setPC(0x1000);
-	printf("Opcodes %d\n", m.run(5000));
-	printf("A: %d\n", m.regA());
+	m.run(5000);
 	while(state.KeepRunning())
 	{
 		m.setPC(0x1000);

@@ -306,11 +306,15 @@ struct AsmGrammar : public boost::spirit::grammar<AsmGrammar>
 		Rule mainrule_ap = *(emptyline_ap[femptyline] | dataline_ap[fdataline] | asmline_ap[fasmline] | defline_ap[fdefline] | metaline_ap[fmetaline] );
 
 		Rule adr_ap = hex_p[push_back_a(state.monargs)];
+
+
 		Rule monasmline_ap = ch_p('a')[assign_a(state.moncmd)] >> !adr_ap >> asmcode_ap;
 		Rule monarg_p = hex_p[push_back_a(state.monargs)];
-		Rule monstrarg_p = lexeme_d[ alpha_p >> *alnum_p ];
+		Rule monstrarg_p = confix_p('"', (*c_escape_ch_p)[assign_a(state.monstring)], '"') | 
+            lexeme_d[ alpha_p >> *alnum_p ][assign_a(state.monstring)];
+
 		Rule monname_ap = lexeme_d[ alpha_p >> *alnum_p ];
-		Rule moncmd_ap = monname_ap[assign_a(state.moncmd)] >> ( monstrarg_p[assign_a(state.monstring)] | *monarg_p ); 
+		Rule moncmd_ap = monname_ap[assign_a(state.moncmd)] >> *monarg_p >> !monstrarg_p; 
 		Rule monline_ap = monasmline_ap[fmodasm] | defline_ap[Log("DEF")] | moncmd_ap; 
 
 		Rule const &start() const {
