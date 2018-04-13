@@ -1,4 +1,6 @@
 tags
 build/
 boost/
+compile_commands.json
+
 
