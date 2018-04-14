@@ -37,22 +37,24 @@ template <typename POLICY> struct Machine;
 // The Policy defines the compile time settings for the emulator
 struct DefaultPolicy
 {
-    static constexpr uint16_t IOMASK = 0; // 0xff;
-    static constexpr uint16_t IOBANK = 0xd0;
-
-    static constexpr bool BankedMemory = true;
-
     // Must be convertable and constructable from uin16_t
     // lo() and hi() functions must extract low and high byte
     using AdrType = uint16_t;
-    static constexpr bool AlignReads = true || BankedMemory;
     static constexpr bool ExitOnStackWrap = true;
+
+    // Which accesses should be `Direct`, ie read & write memory
+    // directly and not go through the bank callbacks. Direct accesses
+    // can not be intercepted and thus can not be used for IO.
+
+    // PC accesses can normally be direct
+    static constexpr bool DirectPC = true;
+
+    // Generic reads and writes should normally not be direct
+    static constexpr bool DirectRead = false;
+    static constexpr bool DirectWrite = false;
 
     static constexpr bool Debug = false;
     static constexpr int MemSize = 65536;
-
-    static inline constexpr void writeIO(BaseM&, uint16_t adr, uint8_t v) {}
-    static inline constexpr uint8_t readIO(BaseM&, uint16_t adr) { return 0; }
 
     static inline constexpr bool eachOp(BaseM&) { return false; }
 };
@@ -122,9 +124,10 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
         a = x = y = 0;
         sr = 0x30;
         toCycles = 0;
-        if (POLICY::BankedMemory) {
-            for (int i = 0; i < 256; i++)
-                rbank[i] = wbank[i] = &ram[i * 256];
+        for (int i = 0; i < 256; i++) {
+            rbank[i] = wbank[i] = &ram[(i * 256) % POLICY::MemSize];
+            rcallbacks[i] = &read_bank;
+            wcallbacks[i] = &write_bank;
         }
         for (const auto& i : getInstructions<false>()) {
             for (const auto& o : i.opcodes)
@@ -171,11 +174,7 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
 
     // Access memory through bank mapping
 
-    Word readMem(uint16_t org) const
-    {
-        if constexpr (POLICY::BankedMemory) return rbank[org >> 8][org & 0xff];
-        else return ram[org];
-    }
+    Word readMem(uint16_t org) const { return rbank[org >> 8][org & 0xff]; }
 
     void readMem(uint16_t org, void* data, int size) const
     {
@@ -244,8 +243,21 @@ private:
     Word* stack;
 
     // Banks normally point to corresponding ram
-    std::array<const Word*, POLICY::MemSize / 256> rbank;
-    std::array<Word*, POLICY::MemSize / 256> wbank;
+    std::array<const Word*, 256> rbank;
+    std::array<Word*, 256> wbank;
+
+    std::array<uint8_t (*)(const Machine&, uint16_t), 256> rcallbacks;
+    std::array<void (*)(Machine&, uint16_t, uint8_t), 256> wcallbacks;
+
+    static void write_bank(Machine& m, uint16_t adr, uint8_t v)
+    {
+        m.wbank[adr >> 8][adr & 0xff] = v;
+    }
+
+    static uint8_t read_bank(const Machine& m, uint16_t adr)
+    {
+        return m.rbank[adr >> 8][adr & 0xff];
+    }
 
     uint32_t toCycles;
     uint32_t cycles;
@@ -353,58 +365,41 @@ private:
     static constexpr Word hi(Adr a) { return a >> 8; }
     static constexpr Adr to_adr(Word lo, Word hi) { return (hi << 8) | lo; }
 
-    const Word& Mem(const Adr& a) const
+    template <bool DIRECT = POLICY::DirectRead> Word Read(uint16_t adr) const
     {
-        if constexpr (POLICY::BankedMemory)
-            return rbank[hi(a)][lo(a)];
+        if constexpr (DIRECT)
+            return rbank[hi(adr)][lo(adr)];
         else
-            return ram[a];
+            return rcallbacks[hi(adr)](*this, adr);
     }
 
-    Word& Mem(const Adr& a)
+    template <bool DIRECT = POLICY::DirectWrite>
+    void Write(uint16_t adr, Word v)
     {
-        if constexpr (POLICY::BankedMemory)
-            return wbank[hi(a)][lo(a)];
+        if constexpr (DIRECT)
+            wbank[hi(adr)][lo(adr)] = v;
         else
-            return ram[a];
+            wcallbacks[hi(adr)](*this, adr, v);
     }
 
-    Word ReadPC() { return Mem(pc++); }
+    Word ReadPC() { return Read<POLICY::DirectPC>(pc++); }
 
-    inline Adr ReadPC8(int offs = 0) { return (Mem(pc++) + offs) & 0xff; }
+    Adr ReadPC8(int offs = 0)
+    {
+        return (Read<POLICY::DirectPC>(pc++) + offs) & 0xff;
+    }
 
     Adr ReadPC16(uint8_t offs = 0)
     {
-        if constexpr (POLICY::AlignReads) {
-            auto adr = to_adr(Mem(pc), Mem(pc + 1));
-            pc += 2;
-            return adr + offs;
-        } else {
-            pc += 2;
-            return *(uint16_t*)&ram[pc - 2] + offs;
-        }
+        auto adr =
+            to_adr(Read<POLICY::DirectPC>(pc), Read<POLICY::DirectPC>(pc + 1));
+        pc += 2;
+        return adr + offs;
     }
 
-    // Read a new address from the given address
     Adr Read16(int a, int offs = 0) const
     {
-        if constexpr (POLICY::AlignReads)
-            return to_adr(Mem(a), Mem(a + 1)) + offs;
-        return *(uint16_t*)&ram[a] + offs;
-    }
-
-    Word Read(uint16_t adr)
-    {
-        if ((hi(adr) & POLICY::IOMASK) == POLICY::IOBANK)
-            return POLICY::readIO(*this, adr);
-        return Mem(adr);
-    }
-
-    void Write(uint16_t adr, Word v)
-    {
-        if ((hi(adr) & POLICY::IOMASK) == POLICY::IOBANK)
-            POLICY::writeIO(*this, adr, v);
-        Mem(adr) = v;
+        return to_adr(Read(a), Read(a + 1)) + offs;
     }
 
     // Read operand from PC and create effective adress depeding on 'MODE'
@@ -424,10 +419,7 @@ private:
     template <int MODE> inline void StoreEA(Word v)
     {
         auto adr = ReadEA<MODE>();
-        if ((hi(adr) & POLICY::IOMASK) == POLICY::IOBANK)
-            POLICY::writeIO(*this, adr, v);
-        else
-            Mem(adr) = v;
+        Write(adr, v);
     }
 
     template <int MODE> Word LoadEA()
@@ -436,9 +428,7 @@ private:
             return ReadPC();
         else {
             Adr adr = ReadEA<MODE>();
-            if ((hi(adr) & POLICY::IOMASK) == POLICY::IOBANK)
-                return POLICY::readIO(*this, adr);
-            return Mem(adr);
+            return Read(adr);
         }
     }
 

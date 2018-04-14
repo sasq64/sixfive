@@ -70,9 +70,14 @@ template <typename POLICY> void checkCode(bool dis)
            opcodes / count, opcodes, calls, jumps);
 }
 
+struct DirectPolicy : sixfive::DefaultPolicy {
+    static constexpr bool DirectRead = true;
+    static constexpr bool DirectWrite = true;
+};
+
 void checkAllCode(bool dis)
 {
-    checkCode<sixfive::DefaultPolicy>(dis);
+    checkCode<DirectPolicy>(dis);
 }
 
 /*
