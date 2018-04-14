@@ -25,9 +25,10 @@ enum AdressingMode
     ABS,
     ABSX,
     ABSY,
-
 };
 
+// Necessary evil since A inherits B doesn't imply Machine<A> inherits
+// Machine<B>
 struct BaseM
 {};
 
@@ -39,11 +40,12 @@ struct DefaultPolicy
     static constexpr uint16_t IOMASK = 0; // 0xff;
     static constexpr uint16_t IOBANK = 0xd0;
 
-    static constexpr bool BankedMemory = false;
+    static constexpr bool BankedMemory = true;
+
     // Must be convertable and constructable from uin16_t
     // lo() and hi() functions must extract low and high byte
     using AdrType = uint16_t;
-    static constexpr bool AlignReads = false; // BankedMemory;
+    static constexpr bool AlignReads = true || BankedMemory;
     static constexpr bool ExitOnStackWrap = true;
 
     static constexpr bool Debug = false;
@@ -125,10 +127,8 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
                 rbank[i] = wbank[i] = &ram[i * 256];
         }
         for (const auto& i : getInstructions<false>()) {
-            for (const auto& o : i.opcodes) {
+            for (const auto& o : i.opcodes)
                 jumpTable_normal[o.code] = o;
-                opNames[o.code] = i.name;
-            }
         }
         for (const auto& i : getInstructions<true>()) {
             for (const auto& o : i.opcodes)
@@ -144,7 +144,6 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
     }
 
     // Access ram directly
-    //
 
     const Word& Ram(const Adr& a) const { return ram[a]; }
 
@@ -174,8 +173,8 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
 
     Word readMem(uint16_t org) const
     {
-        if (POLICY::BankedMemory) return rbank[org >> 8][org & 0xff];
-        return ram[org];
+        if constexpr (POLICY::BankedMemory) return rbank[org >> 8][org & 0xff];
+        else return ram[org];
     }
 
     void readMem(uint16_t org, void* data, int size) const
@@ -231,12 +230,12 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
 
 private:
     // The 6502 registers
+    Adr pc;
     unsigned a;
     unsigned x;
     unsigned y;
     unsigned sr;
     uint8_t sp;
-    Adr pc;
 
     // 6502 RAM
     std::array<Word, POLICY::MemSize> ram;
@@ -251,76 +250,10 @@ private:
     uint32_t toCycles;
     uint32_t cycles;
 
-    // All opcodes
     std::array<Opcode, 256> jumpTable_normal;
     std::array<Opcode, 256> jumpTable_bcd;
+    // Current jumptable
     const Opcode* jumpTable;
-    std::array<const char*, 256> opNames;
-
-    static constexpr Word lo(Adr a) { return a & 0xff; }
-    static constexpr Word hi(Adr a) { return a >> 8; }
-    static constexpr Adr to_adr(Word lo, Word hi) { return (hi << 8) | lo; }
-
-    // Access memory
-
-    const Word& Mem(const Adr& a) const
-    {
-        if constexpr (POLICY::BankedMemory)
-            return rbank[hi(a)][lo(a)];
-        else
-            return ram[a];
-    }
-
-    Word& Mem(const Adr& a)
-    {
-        if constexpr (POLICY::BankedMemory)
-            return wbank[hi(a)][lo(a)];
-        else
-            return ram[a];
-    }
-
-    const Word& Mem(const uint8_t& lo, const uint8_t& hi) const
-    {
-        if constexpr (POLICY::BankedMemory)
-            return rbank[hi][lo];
-        else
-            return ram[lo | (hi << 8)];
-    }
-
-    Word& Mem(const uint8_t& lo, const uint8_t& hi)
-    {
-        if constexpr (POLICY::BankedMemory)
-            return wbank[hi][lo];
-        else
-            return ram[lo | (hi << 8)];
-    }
-
-    // TODO: Add optional support for IO reads by PC
-    Word ReadPC()
-    {
-        Word r = Mem(pc);
-        ++pc;
-        return r;
-    }
-
-    // Read Address from PC, Increment PC
-
-    // TODO: These PC conversion + READ is expensive in opcode count
-
-    inline Adr ReadPC8(int offs = 0) { return (Mem(pc++) + offs) & 0xff; }
-
-    Adr ReadPC16(uint8_t offs = 0)
-    {
-        if constexpr (POLICY::AlignReads) {
-            uint8_t lo = Mem(pc);
-            uint8_t hi = Mem(++pc);
-            ++pc;
-            return to_adr(lo, hi) + offs;
-        } else {
-            pc += 2;
-            return *(uint16_t*)&ram[pc - 2] + offs;
-        }
-    }
 
     template <int REG> constexpr auto& Reg() const
     {
@@ -330,7 +263,7 @@ private:
         if constexpr (REG == SP) return sp;
     }
 
-    template <int REG> auto& Reg()
+    template <int REG> constexpr auto& Reg()
     {
         if constexpr (REG == A) return a;
         if constexpr (REG == X) return x;
@@ -416,25 +349,47 @@ private:
     ///
     /////////////////////////////////////////////////////////////////////////
 
+    static constexpr Word lo(Adr a) { return a & 0xff; }
+    static constexpr Word hi(Adr a) { return a >> 8; }
+    static constexpr Adr to_adr(Word lo, Word hi) { return (hi << 8) | lo; }
+
+    const Word& Mem(const Adr& a) const
+    {
+        if constexpr (POLICY::BankedMemory)
+            return rbank[hi(a)][lo(a)];
+        else
+            return ram[a];
+    }
+
+    Word& Mem(const Adr& a)
+    {
+        if constexpr (POLICY::BankedMemory)
+            return wbank[hi(a)][lo(a)];
+        else
+            return ram[a];
+    }
+
+    Word ReadPC() { return Mem(pc++); }
+
+    inline Adr ReadPC8(int offs = 0) { return (Mem(pc++) + offs) & 0xff; }
+
+    Adr ReadPC16(uint8_t offs = 0)
+    {
+        if constexpr (POLICY::AlignReads) {
+            auto adr = to_adr(Mem(pc), Mem(pc + 1));
+            pc += 2;
+            return adr + offs;
+        } else {
+            pc += 2;
+            return *(uint16_t*)&ram[pc - 2] + offs;
+        }
+    }
+
     // Read a new address from the given address
-    inline Adr Read16(uint16_t a, int offs = 0) const
+    Adr Read16(int a, int offs = 0) const
     {
         if constexpr (POLICY::AlignReads)
             return to_adr(Mem(a), Mem(a + 1)) + offs;
-        return *(uint16_t*)&ram[a] + offs;
-    }
-
-    Adr Read16ZP(uint8_t a, int offs = 0) const
-    {
-        if constexpr (POLICY::AlignReads)
-            return to_adr(Mem(a), Mem((a + 1) & 0xff)) + offs;
-        return *(uint16_t*)&ram[a] + offs;
-    }
-
-    Adr Read16ZP(uint16_t a, int offs = 0) const
-    {
-        if constexpr (POLICY::AlignReads)
-            return to_adr(Mem(lo(a), 0), Mem((lo(a) + 1) & 0xff, 0)) + offs;
         return *(uint16_t*)&ram[a] + offs;
     }
 
@@ -461,8 +416,8 @@ private:
         if constexpr (MODE == ABS) return ReadPC16();
         if constexpr (MODE == ABSX) return ReadPC16(x);
         if constexpr (MODE == ABSY) return ReadPC16(y);
-        if constexpr (MODE == INDX) return Read16ZP(ReadPC8(x));
-        if constexpr (MODE == INDY) return Read16ZP(ReadPC8(), y);
+        if constexpr (MODE == INDX) return Read16(ReadPC8(x));
+        if constexpr (MODE == INDY) return Read16(ReadPC8(), y);
         if constexpr (MODE == IND) return Read16(ReadPC16()); // TODO: ZP wrap?
     }
 
@@ -622,7 +577,7 @@ private:
             m.set_SZ<A>();
         } else {
             auto adr = m.ReadEA<MODE>();
-            int rc = m.Read(adr);
+            unsigned rc = m.Read(adr);
             m.sr = (m.sr & 0xfe) | (rc & 1);
             rc >>= 1;
             m.Write(adr, rc);
@@ -938,15 +893,14 @@ public:
                     m.pc = m.ReadPC16();
                 } },
                 { 0x6c, 5, IND, [](Machine& m) {
-                    auto a = m.ReadPC16();
-                    m.pc = m.Read16(a);
+                    m.pc = m.Read16(m.ReadPC16());
                 } }
             } },
 
             { "jsr", {
                 { 0x20, 6, ABS, [](Machine& m) {
-                    m.stack[m.sp--] = (m.pc+1U) >> 8;
-                    m.stack[m.sp--] = (m.pc+1) & 0xffU;
+                    m.stack[m.sp--] = (m.pc+1) >> 8;
+                    m.stack[m.sp--] = (m.pc+1) & 0xff;
                     m.pc = m.ReadPC16();
                 } }
             } },
