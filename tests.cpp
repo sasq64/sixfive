@@ -71,8 +71,9 @@ template <typename POLICY> void checkCode(bool dis)
 }
 
 struct DirectPolicy : sixfive::DefaultPolicy {
-    static constexpr bool DirectRead = true;
-    static constexpr bool DirectWrite = true;
+    static constexpr int PC_AccessMode = DIRECT;
+    static constexpr int Read_AccessMode = DIRECT;
+    static constexpr int Write_AccessMode = DIRECT;
 };
 
 void checkAllCode(bool dis)
@@ -122,7 +123,7 @@ static void Bench_sort(benchmark::State& state)
         220, 50, 30,  20,  67,  111, 109, 175, 4,   66, 100,
     };
 
-    sixfive::Machine<> m;
+    sixfive::Machine<DirectPolicy> m;
     for (int i = 0; i < (int)sizeof(data); i++)
         m.writeRam(0x2000 + i, data[i]);
     for (int i = 0; i < (int)sizeof(sortCode); i++)

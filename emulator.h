@@ -27,12 +27,18 @@ enum AdressingMode
     ABSY,
 };
 
-// Necessary evil since A inherits B doesn't imply Machine<A> inherits
-// Machine<B>
 struct BaseM
 {};
 
 template <typename POLICY> struct Machine;
+
+enum EmulatedMemoryAccess
+{
+    DIRECT,  // Access `ram` array directly; Means no bank switching, ROM areas
+             // or IO areas
+    BANKED,  // Access memory through `wbank` and `rbank`; Means no IO areas
+    CALLBACK // Access banks via function pointer, behavour can be customized
+};
 
 // The Policy defines the compile time settings for the emulator
 struct DefaultPolicy
@@ -42,20 +48,17 @@ struct DefaultPolicy
     using AdrType = uint16_t;
     static constexpr bool ExitOnStackWrap = true;
 
-    // Which accesses should be `Direct`, ie read & write memory
-    // directly and not go through the bank callbacks. Direct accesses
-    // can not be intercepted and thus can not be used for IO.
-
-    // PC accesses can normally be direct
-    static constexpr bool DirectPC = true;
+    // PC accesses does not normally need to work in IO areas
+    static constexpr int PC_AccessMode = BANKED;
 
     // Generic reads and writes should normally not be direct
-    static constexpr bool DirectRead = false;
-    static constexpr bool DirectWrite = false;
+    static constexpr int Read_AccessMode = CALLBACK;
+    static constexpr int Write_AccessMode = CALLBACK;
 
     static constexpr bool Debug = false;
     static constexpr int MemSize = 65536;
 
+    // This function is run after each opcode. Return true to stop emulation.
     static inline constexpr bool eachOp(BaseM&) { return false; }
 };
 
@@ -149,7 +152,6 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
     // Access ram directly
 
     const Word& Ram(const Adr& a) const { return ram[a]; }
-
     Word& Ram(const Adr& a) { return ram[a]; }
 
     const Word& Stack(const Word& a) const { return stack[a]; }
@@ -190,6 +192,23 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
         while (data < end) {
             rbank[bank++] = const_cast<Word*>(data);
             data += 256;
+        }
+    }
+
+    void mapReadCallback(uint8_t bank, int len,
+                          uint8_t (*cb)(const Machine&, uint16_t a))
+    {
+        while (len > 0) {
+            rcallbacks[bank++] = cb;
+            len -= 256;
+        }
+    }
+    void mapWriteCallback(uint8_t bank, int len,
+                          void (*cb)(Machine&, uint16_t a, uint8_t v))
+    {
+        while (len > 0) {
+            wcallbacks[bank++] = cb;
+            len -= 256;
         }
     }
 
@@ -365,34 +384,39 @@ private:
     static constexpr Word hi(Adr a) { return a >> 8; }
     static constexpr Adr to_adr(Word lo, Word hi) { return (hi << 8) | lo; }
 
-    template <bool DIRECT = POLICY::DirectRead> Word Read(uint16_t adr) const
+    template <int ACCESS_MODE = POLICY::Read_AccessMode>
+    Word Read(uint16_t adr) const
     {
-        if constexpr (DIRECT)
+        if constexpr (ACCESS_MODE == DIRECT)
+            return ram[adr];
+        else if constexpr (ACCESS_MODE == BANKED)
             return rbank[hi(adr)][lo(adr)];
         else
             return rcallbacks[hi(adr)](*this, adr);
     }
 
-    template <bool DIRECT = POLICY::DirectWrite>
+    template <int ACCESS_MODE = POLICY::Write_AccessMode>
     void Write(uint16_t adr, Word v)
     {
-        if constexpr (DIRECT)
+        if constexpr (ACCESS_MODE == DIRECT)
+            ram[adr] = v;
+        else if constexpr (ACCESS_MODE == BANKED)
             wbank[hi(adr)][lo(adr)] = v;
         else
             wcallbacks[hi(adr)](*this, adr, v);
     }
 
-    Word ReadPC() { return Read<POLICY::DirectPC>(pc++); }
+    Word ReadPC() { return Read<POLICY::PC_AccessMode>(pc++); }
 
     Adr ReadPC8(int offs = 0)
     {
-        return (Read<POLICY::DirectPC>(pc++) + offs) & 0xff;
+        return (Read<POLICY::PC_AccessMode>(pc++) + offs) & 0xff;
     }
 
-    Adr ReadPC16(uint8_t offs = 0)
+    Adr ReadPC16(int offs = 0)
     {
-        auto adr =
-            to_adr(Read<POLICY::DirectPC>(pc), Read<POLICY::DirectPC>(pc + 1));
+        auto adr = to_adr(Read<POLICY::PC_AccessMode>(pc),
+                          Read<POLICY::PC_AccessMode>(pc + 1));
         pc += 2;
         return adr + offs;
     }
