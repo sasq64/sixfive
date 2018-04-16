@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <tuple>
 #include <vector>
+#include <array>
 
 namespace sixfive {
 
