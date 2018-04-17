@@ -44,9 +44,6 @@ struct DefaultPolicy
 	DefaultPolicy() {}
 	DefaultPolicy(Machine<DefaultPolicy>& m) {}
 
-    // Must be convertable and constructable from uin16_t
-    // lo() and hi() functions must extract low and high byte
-    using AdrType = uint16_t;
     static constexpr bool ExitOnStackWrap = true;
 
     // PC accesses does not normally need to work in IO areas
@@ -88,7 +85,7 @@ template <typename POLICY = DefaultPolicy> struct Machine
         SIGN
     };
 
-    using Adr = typename POLICY::AdrType;
+    using Adr = uint16_t;
     using Word = uint8_t;
 
     using OpFunc = void (*)(Machine&);
@@ -160,9 +157,8 @@ template <typename POLICY = DefaultPolicy> struct Machine
 
     void writeRam(uint16_t org, const uint8_t* data, int size)
     {
-        auto* data8 = (uint8_t*)data;
         for (int i = 0; i < size; i++)
-            ram[org + i] = data8[i];
+            ram[org + i] = data[i];
     }
 
     void readRam(uint16_t org, uint8_t* data, int size) const
@@ -232,7 +228,7 @@ template <typename POLICY = DefaultPolicy> struct Machine
 
             auto code = ReadPC();
             if constexpr (POLICY::ExitOnStackWrap) {
-                if (code == 0x60 && (uint8_t)sp == 0xff) return opcodes;
+                if (code == 0x60 && sp == 0xff) return opcodes;
             }
             auto& op = jumpTable[code];
             op.op(*this);
