@@ -108,7 +108,7 @@ template <typename POLICY> void monitor(Machine<POLICY>& m)
                 size = cmd.args[1];
             else
                 size = 16;
-            int8_t input[4];
+            uint8_t input[4];
             for (int i = 0; i < size; i++) {
                 m.readMem(start, input, 3);
                 auto org = start;
@@ -130,7 +130,7 @@ template <typename POLICY> void monitor(Machine<POLICY>& m)
             if (cmd.args.size() > 0) start = cmd.args[0];
             int len = assemble(start, output, cmd.strarg);
             if (len > 0) {
-                m.writeRam(start, (int8_t*)output, len);
+                m.writeRam(start, output, len);
                 start += len;
                 prefix = utils::format("a %04x ", start);
             }

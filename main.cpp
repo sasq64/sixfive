@@ -81,9 +81,10 @@ struct DebugPolicy : public sixfive::DefaultPolicy
     {
         return 0;
     }
-    void checkEffect(Machine& m)
+    void checkEffect()
     {
         static sixfive::Machine<DebugPolicy> om;
+		auto& m = machine;
         if (om.regPC() != 0) {
             // if(om.pc != m.pc)
             print("%04x : ", (unsigned)om.regPC());
@@ -121,12 +122,13 @@ struct DebugPolicy : public sixfive::DefaultPolicy
 
     inline static bool doTrace = false;
 
-    static bool eachOp(Machine& m)
+    static bool eachOp(DebugPolicy& dp)
     {
         static int lastpc = -1;
-        if (doTrace) m.policy().checkEffect(m);
+        if (doTrace) dp.checkEffect();
+		auto& m = dp.machine;
         if (m.regPC() == lastpc) {
-            m.policy().print("STALL\n");
+            dp.print("STALL\n");
             return true;
         }
         lastpc = m.regPC();
@@ -138,8 +140,13 @@ struct DebugPolicy : public sixfive::DefaultPolicy
 
 struct CheckPolicy : public sixfive::DefaultPolicy
 {
-    static bool eachOp(sixfive::Machine<CheckPolicy>& m)
+	sixfive::Machine<CheckPolicy>& machine;
+
+	CheckPolicy(sixfive::Machine<CheckPolicy>& m) : machine(m) {}
+
+    static bool eachOp(CheckPolicy& dp)
     {
+		auto& m = dp.machine;
         static int lastpc = -1;
         if (m.regPC() == lastpc) {
             const auto [a, x, y, sr, sp, pc] = m.regs();

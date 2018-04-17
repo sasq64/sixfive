@@ -71,6 +71,7 @@ template <typename POLICY> void checkCode(bool dis)
 }
 
 struct DirectPolicy : sixfive::DefaultPolicy {
+	DirectPolicy(sixfive::Machine<DirectPolicy>&m) {}
     static constexpr int PC_AccessMode = DIRECT;
     static constexpr int Read_AccessMode = DIRECT;
     static constexpr int Write_AccessMode = DIRECT;

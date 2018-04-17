@@ -82,7 +82,7 @@ template <typename POLICY> int compile(const std::string &fileName, Machine<POLI
 
 			return 0;
 		}
-		int8_t temp[4];
+		uint8_t temp[4];
 		int len = assemble(org, (uint8_t*)&temp[0], std::string(" ") + op + " " + arg);
 		if(len > 0) {
 			m.writeRam(org, &temp[0], len);

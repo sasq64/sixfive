@@ -28,9 +28,6 @@ enum AdressingMode
     ABSY,
 };
 
-struct BaseM
-{};
-
 template <typename POLICY> struct Machine;
 
 enum EmulatedMemoryAccess
@@ -44,6 +41,9 @@ enum EmulatedMemoryAccess
 // The Policy defines the compile time settings for the emulator
 struct DefaultPolicy
 {
+	DefaultPolicy() {}
+	DefaultPolicy(Machine<DefaultPolicy>& m) {}
+
     // Must be convertable and constructable from uin16_t
     // lo() and hi() functions must extract low and high byte
     using AdrType = uint16_t;
@@ -60,10 +60,10 @@ struct DefaultPolicy
     static constexpr int MemSize = 65536;
 
     // This function is run after each opcode. Return true to stop emulation.
-    static inline constexpr bool eachOp(BaseM&) { return false; }
+    static constexpr bool eachOp(DefaultPolicy&) { return false; }
 };
 
-template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
+template <typename POLICY = DefaultPolicy> struct Machine
 {
     enum REGNAME
     {
@@ -90,7 +90,6 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
 
     using Adr = typename POLICY::AdrType;
     using Word = uint8_t;
-    using Flags = uint8_t;
 
     using OpFunc = void (*)(Machine&);
 
@@ -159,31 +158,29 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
 
     void writeRam(uint16_t org, const Word data) { ram[org] = data; }
 
-    void writeRam(uint16_t org, const void* data, int size)
+    void writeRam(uint16_t org, const uint8_t* data, int size)
     {
         auto* data8 = (uint8_t*)data;
         for (int i = 0; i < size; i++)
             ram[org + i] = data8[i];
     }
 
-    void readRam(uint16_t org, void* data, int size) const
+    void readRam(uint16_t org, uint8_t* data, int size) const
     {
-        auto* data8 = (Word*)data;
         for (int i = 0; i < size; i++)
-            data8[i] = ram[org + i];
+            data[i] = ram[org + i];
     }
 
-    Word readRam(uint16_t org) const { return ram[org]; }
+    uint8_t readRam(uint16_t org) const { return ram[org]; }
 
     // Access memory through bank mapping
 
-    Word readMem(uint16_t org) const { return rbank[org >> 8][org & 0xff]; }
+    uint8_t readMem(uint16_t org) const { return rbank[org >> 8][org & 0xff]; }
 
-    void readMem(uint16_t org, void* data, int size) const
+    void readMem(uint16_t org, uint8_t* data, int size) const
     {
-        auto* data8 = (Word*)data;
         for (int i = 0; i < size; i++)
-            data8[i] = readMem(org + i);
+            data[i] = readMem(org + i);
     }
 
     // Map ROM to a bank
@@ -213,9 +210,9 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
         }
     }
 
-    Word regA() const { return a; }
-    Word regX() const { return x; }
-    Word regY() const { return y; }
+    uint8_t regA() const { return a; }
+    uint8_t regX() const { return x; }
+    uint8_t regY() const { return y; }
     uint8_t regSP() const { return sp; }
     Adr regPC() const { return pc; }
 
@@ -225,12 +222,13 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
 
     uint32_t run(uint32_t runc = 0x01000000)
     {
+		auto& p = policy();
 
         toCycles = cycles + runc;
         uint32_t opcodes = 0;
         while (cycles < toCycles) {
 
-            if (POLICY::eachOp(*this)) break;
+            if (POLICY::eachOp(p)) break;
 
             auto code = ReadPC();
             if constexpr (POLICY::ExitOnStackWrap) {
@@ -249,7 +247,7 @@ template <typename POLICY = DefaultPolicy> struct Machine : public BaseM
 
 private:
     // The 6502 registers
-    Adr pc;
+    unsigned pc;
     unsigned a;
     unsigned x;
     unsigned y;
@@ -266,15 +264,15 @@ private:
     std::array<const Word*, 256> rbank;
     std::array<Word*, 256> wbank;
 
-    std::array<uint8_t (*)(const Machine&, uint16_t), 256> rcallbacks;
-    std::array<void (*)(Machine&, uint16_t, uint8_t), 256> wcallbacks;
+    std::array<Word (*)(const Machine&, uint16_t), 256> rcallbacks;
+    std::array<void (*)(Machine&, uint16_t, Word), 256> wcallbacks;
 
-    static void write_bank(Machine& m, uint16_t adr, uint8_t v)
+    static void write_bank(Machine& m, uint16_t adr, Word v)
     {
-        m.wbank[adr >> 8][adr & 0xff] = v;
+        m.wbank[adr >> 8][adr & 0xff] = v & 0xff;
     }
 
-    static uint8_t read_bank(const Machine& m, uint16_t adr)
+    static Word read_bank(const Machine& m, uint16_t adr)
     {
         return m.rbank[adr >> 8][adr & 0xff];
     }
@@ -365,7 +363,7 @@ private:
         sr = (sr & ~SZ) | (Reg<REG>() & 0x80) | (!Reg<REG>() << 1);
     }
 
-    template <int FLAG> constexpr int check() const { return sr & (1 << FLAG); }
+    template <int FLAG> constexpr unsigned check() const { return sr & (1 << FLAG); }
 
     static constexpr bool SET = true;
     static constexpr bool CLEAR = false;
@@ -381,12 +379,12 @@ private:
     ///
     /////////////////////////////////////////////////////////////////////////
 
-    static constexpr Word lo(Adr a) { return a & 0xff; }
-    static constexpr Word hi(Adr a) { return a >> 8; }
-    static constexpr Adr to_adr(Word lo, Word hi) { return (hi << 8) | lo; }
+    static constexpr unsigned lo(unsigned a) { return a & 0xff; }
+    static constexpr unsigned hi(unsigned a) { return a >> 8; }
+    static constexpr unsigned to_adr(unsigned lo, unsigned hi) { return (hi << 8) | lo; }
 
     template <int ACCESS_MODE = POLICY::Read_AccessMode>
-    Word Read(uint16_t adr) const
+    unsigned Read(unsigned adr) const
     {
         if constexpr (ACCESS_MODE == DIRECT)
             return ram[adr];
@@ -397,7 +395,7 @@ private:
     }
 
     template <int ACCESS_MODE = POLICY::Write_AccessMode>
-    void Write(uint16_t adr, Word v)
+    void Write(unsigned adr, unsigned v)
     {
         if constexpr (ACCESS_MODE == DIRECT)
             ram[adr] = v;
@@ -407,14 +405,14 @@ private:
             wcallbacks[hi(adr)](*this, adr, v);
     }
 
-    Word ReadPC() { return Read<POLICY::PC_AccessMode>(pc++); }
+    unsigned ReadPC() { return Read<POLICY::PC_AccessMode>(pc++); }
 
-    Adr ReadPC8(int offs = 0)
+    unsigned ReadPC8(unsigned offs = 0)
     {
         return (Read<POLICY::PC_AccessMode>(pc++) + offs) & 0xff;
     }
 
-    Adr ReadPC16(int offs = 0)
+    unsigned ReadPC16(unsigned offs = 0)
     {
         auto adr = to_adr(Read<POLICY::PC_AccessMode>(pc),
                           Read<POLICY::PC_AccessMode>(pc + 1));
@@ -422,13 +420,13 @@ private:
         return adr + offs;
     }
 
-    Adr Read16(int a, int offs = 0) const
+    unsigned Read16(unsigned a, unsigned offs = 0) const
     {
         return to_adr(Read(a), Read(a + 1)) + offs;
     }
 
     // Read operand from PC and create effective adress depeding on 'MODE'
-    template <int MODE> Adr ReadEA()
+    template <int MODE> unsigned ReadEA()
     {
         if constexpr (MODE == ZP) return ReadPC8();
         if constexpr (MODE == ZPX) return ReadPC8(x);
@@ -441,18 +439,18 @@ private:
         if constexpr (MODE == IND) return Read16(ReadPC16()); // TODO: ZP wrap?
     }
 
-    template <int MODE> inline void StoreEA(Word v)
+    template <int MODE> inline void StoreEA(unsigned v)
     {
         auto adr = ReadEA<MODE>();
         Write(adr, v);
     }
 
-    template <int MODE> Word LoadEA()
+    template <int MODE> unsigned LoadEA()
     {
         if constexpr (MODE == IMM)
             return ReadPC();
         else {
-            Adr adr = ReadEA<MODE>();
+            unsigned adr = ReadEA<MODE>();
             return Read(adr);
         }
     }
@@ -483,7 +481,7 @@ private:
     template <int FLAG, bool v> static constexpr void Branch(Machine& m)
     {
         int8_t diff = m.ReadPC();
-        int d = m.check<FLAG, v>();
+        unsigned d = m.check<FLAG, v>();
         m.cycles += d;
         m.pc += (diff * d);
     }
@@ -505,13 +503,13 @@ private:
 
     template <int REG, int MODE> static constexpr void Bit(Machine& m)
     {
-        Word z = m.LoadEA<MODE>();
+        unsigned z = m.LoadEA<MODE>();
         m.set_SR((m.get_SR() & 0x3d) | (z & 0xc0) | (!(z & m.a) << 1));
     }
 
     template <int REG, int MODE> static constexpr void Cmp(Machine& m)
     {
-        Word z = (~m.LoadEA<MODE>()) & 0xff;
+        unsigned z = (~m.LoadEA<MODE>()) & 0xff;
         unsigned rc = m.Reg<REG>() + z + 1;
         m.set<SZC>(rc);
     }
@@ -578,7 +576,7 @@ private:
             m.a = rc & 0xff;
         } else {
             auto adr = m.ReadEA<MODE>();
-            int rc = m.Read(adr) << 1;
+            unsigned rc = m.Read(adr) << 1;
             m.set<SZC>(rc);
             m.Write(adr, rc);
         }
@@ -645,13 +643,13 @@ private:
 
 public:
     template <bool USE_BCD = false>
-    static const std::vector<Instruction>& getInstructions()
+    static const auto& getInstructions()
     {
         static const  std::vector<Instruction> instructionTable = {
 
-            {"nop", {{ 0xea, 2, NONE, [](Machine& ) {} }} },
+            { "nop", {{ 0xea, 2, NONE, [](Machine& ) {} }} },
 
-            {"lda", {
+            { "lda", {
                 { 0xa9, 2, IMM, Load<A, IMM>},
                 { 0xa5, 2, ZP, Load<A, ZP>},
                 { 0xb5, 4, ZPX, Load<A, ZPX>},
@@ -662,7 +660,7 @@ public:
                 { 0xb1, 5, INDY, Load<A, INDY>},
             } },
 
-            {"ldx", {
+            { "ldx", {
                 { 0xa2, 2, IMM, Load<X, IMM>},
                 { 0xa6, 3, ZP, Load<X, ZP>},
                 { 0xb6, 4, ZPY, Load<X, ZPY>},
@@ -670,7 +668,7 @@ public:
                 { 0xbe, 4, ABSY, Load<X, ABSY>},
             } },
 
-            {"ldy", {
+            { "ldy", {
                 { 0xa0, 2, IMM, Load<Y, IMM>},
                 { 0xa4, 3, ZP, Load<Y, ZP>},
                 { 0xb4, 4, ZPX, Load<Y, ZPX>},
@@ -678,7 +676,7 @@ public:
                 { 0xbc, 4, ABSX, Load<Y, ABSX>},
             } },
 
-            {"sta", {
+            { "sta", {
                 { 0x85, 3, ZP, Store<A, ZP>},
                 { 0x95, 4, ZPX, Store<A, ZPX>},
                 { 0x8d, 4, ABS, Store<A, ABS>},
@@ -688,26 +686,26 @@ public:
                 { 0x91, 5, INDY, Store<A, INDY>},
             } },
 
-            {"stx", {
+            { "stx", {
                 { 0x86, 3, ZP, Store<X, ZP>},
                 { 0x96, 4, ZPY, Store<X, ZPY>},
                 { 0x8e, 4, ABS, Store<X, ABS>},
             } },
 
-            {"sty", {
+            { "sty", {
                 { 0x84, 3, ZP, Store<Y, ZP>},
                 { 0x94, 4, ZPX, Store<Y, ZPX>},
                 { 0x8c, 4, ABS, Store<Y, ABS>},
             } },
 
-            {"dec", {
+            { "dec", {
                 { 0xc6, 5, ZP, Inc<ZP, -1>},
                 { 0xd6, 6, ZPX, Inc<ZPX, -1>},
                 { 0xce, 6, ABS, Inc<ABS, -1>},
                 { 0xde, 7, ABSX, Inc<ABSX, -1>},
             } },
 
-            {"inc", {
+            { "inc", {
                 { 0xe6, 5, ZP, Inc<ZP, 1>},
                 { 0xf6, 6, ZPX, Inc<ZPX, 1>},
                 { 0xee, 6, ABS, Inc<ABS, 1>},
@@ -924,5 +922,4 @@ public:
         return instructionTable;
     }
 };
-
 } // namespace sixfive
