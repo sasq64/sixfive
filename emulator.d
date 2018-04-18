@@ -30,8 +30,9 @@ enum
 }
 
 // The Policy defines the compile time settings for the emulator
-struct DefaultPolicy
+class DefaultPolicy
 {
+	this(Machine!DefaultPolicy) {}
     // Must be convertable and constructable from uin16_t
     // lo() and hi() functions must extract low and high byte
     alias AdrType = ushort;
@@ -62,7 +63,7 @@ class Machine(POLICY = DefaultPolicy)
         SR
     }
 
-    const static bool IsReg(MODE)() { return MODE >= A; }
+    static bool IsReg(int MODE)() { return MODE >= A; }
 
     enum
     {
@@ -120,81 +121,80 @@ class Machine(POLICY = DefaultPolicy)
         jumpTable = &jumpTable_normal[0];
     }
 
+	POLICY _policy;
     ref POLICY policy()
     {
-        static POLICY policy(this);
-        return policy;
+		if(_policy is null)
+        	_policy = new POLICY(this);
+        return _policy;
     }
 
     // Access ram directly
 
     ref Word Ram(Adr a) { return ram[a]; }
 
-    ref Word Stack(ubyte a) const { return stack[a]; }
+    ref auto Stack(ubyte a) const { return stack[a]; }
 
-    void writeRam(ushort org, Word data) { ram[org] = data; }
+    void writeRam(uint org, Word data) { ram[org] = data; }
 
-    /* void writeRam(ushort org, const void* data, int size) */
-    /* { */
-    /*     auto* data8 = (ubyte*)data; */
-    /*     for (int i = 0; i < size; i++) */
-    /*         ram[org + i] = data8[i]; */
-    /* } */
+    void writeRam(uint org, const ubyte* data, int size)
+    {
+        for (int i = 0; i < size; i++)
+            ram[org + i] = data[i];
+    }
 
-    /* void readRam(ushort org, void* data, int size) const */
-    /* { */
-    /*     auto* data8 = (Word*)data; */
-    /*     for (int i = 0; i < size; i++) */
-    /*         data8[i] = ram[org + i]; */
-    /* } */
+    void readRam(uint org, ubyte* data, int size) const
+    {
+        for (int i = 0; i < size; i++)
+            data[i] = ram[org + i];
+    }
 
-    Word readRam(ushort org) const { return ram[org]; }
+    Word readRam(uint org) const { return ram[org]; }
 
     // Access memory through bank mapping
 
-    Word readMem(ushort org) const { return rbank[org >> 8][org & 0xff]; }
+    Word readMem(uint org) const { return rbank[org >> 8][org & 0xff]; }
 
-/*     void readMem(ushort org, void* data, int size) const */
-/*     { */
-/*         auto* data8 = (Word*)data; */
-/*         for (int i = 0; i < size; i++) */
-/*             data8[i] = readMem(org + i); */
-/*     } */
+    void readMem(uint org, ubyte* data, int size) const
+    {
+        for (int i = 0; i < size; i++)
+            data[i] = readMem(cast(ushort)(org + i));
+    }
 
-/*     // Map ROM to a bank */
-/*     void mapRom(ubyte bank, const Word* data, int len) */
-/*     { */
-/*         auto end = data + len; */
-/*         while (data < end) { */
-/*             rbank[bank++] = const_cast<Word*>(data); */
-/*             data += 256; */
-/*         } */
-/*     } */
+    // Map ROM to a bank
+    void mapRom(ubyte bank, Word* data, int len)
+    {
+        auto end = data + len;
+        while (data < end) {
+            rbank[bank++] = data;
+            data += 256;
+        }
+    }
 
-/*     void mapReadCallback(ubyte bank, int len, */
-/*                           ubyte (*cb)(const Machine, ushort a)) */
-/*     { */
-/*         while (len > 0) { */
-/*             rcallbacks[bank++] = cb; */
-/*             len -= 256; */
-/*         } */
-/*     } */
-/*     void mapWriteCallback(ubyte bank, int len, */
-/*                           void (*cb)(Machine, ushort a, ubyte v)) */
-/*     { */
-/*         while (len > 0) { */
-/*             wcallbacks[bank++] = cb; */
-/*             len -= 256; */
-/*         } */
-/*     } */
+    void mapReadCallback(ubyte bank, int len,
+                          uint function(const Machine, uint a) cb)
+    {
+        while (len > 0) {
+            rcallbacks[bank++] = cb;
+            len -= 256;
+        }
+    }
+    void mapWriteCallback(ubyte bank, int len,
+                          void function(Machine, uint a, uint v) cb)
+    {
+        while (len > 0) {
+            wcallbacks[bank++] = cb;
+            len -= 256;
+        }
+    }
 
-    Word regA() const { return a; }
-    Word regX() const { return x; }
-    Word regY() const { return y; }
-    ubyte regSP() const { return sp; }
-    Adr regPC() const { return pc; }
+    auto regA() const { return a; }
+    auto regX() const { return x; }
+    auto regY() const { return y; }
+    auto regSP() const { return sp; }
+    auto regPC() const { return pc; }
 
-    ubyte regSR() const { return sr; }
+    auto regSR() const { return sr; }
 
     void setPC(ushort p) { pc = p; }
 
@@ -211,7 +211,7 @@ class Machine(POLICY = DefaultPolicy)
             static if (POLICY.ExitOnStackWrap) {
                 if (code == 0x60 && cast(ubyte)sp == 0xff) return opcodes;
             }
-            auto ref op = jumpTable[code];
+            auto op = jumpTable[code];
             op.op(this);
             cycles += op.cycles;
             opcodes++;
@@ -241,15 +241,15 @@ private:
 	const(Word)*[256] rbank;
 	Word*[256] wbank;
 
-	ubyte function(const Machine, uint)[256] rcallbacks;
-	void function(Machine, uint, ubyte)[256] wcallbacks;
+	uint function(const Machine, uint)[256] rcallbacks;
+	void function(Machine, uint, uint)[256] wcallbacks;
 
-    static void write_bank(Machine m, uint adr, ubyte v)
+    static void write_bank(Machine m, uint adr, uint v)
     {
-        m.wbank[adr >> 8][adr & 0xff] = v;
+        m.wbank[adr >> 8][adr & 0xff] = cast(ubyte)v;
     }
 
-    static ubyte read_bank(const Machine m, uint adr)
+    static uint read_bank(const Machine m, uint adr)
     {
         return m.rbank[adr >> 8][adr & 0xff];
     }
@@ -260,7 +260,7 @@ private:
     Opcode[256] jumpTable_normal;
     Opcode[256] jumpTable_bcd;
     // Current jumptable
-    const Opcode* jumpTable;
+    const (Opcode)* jumpTable;
 
 	auto ref Reg(int REG)() {
     	static if(REG == A) return a;
@@ -290,7 +290,7 @@ private:
     static const auto SZC = S | Z | C;
     static const auto SZCV = S | Z | C | V;
 
-    ubyte get_SR() const { return sr; }
+    auto get_SR() const { return sr; }
 
     ubyte lastSR = 0; // Only for the D bit
 
@@ -346,11 +346,11 @@ private:
     ///
     /////////////////////////////////////////////////////////////////////////
 
-    static  Word lo(uint a) { return a & 0xff; }
-    static  Word hi(uint a) { return (a >> 8) & 0xff; }
-    static  Adr to_adr(Word lo, Word hi) { return (hi << 8) | lo; }
+    static uint lo(uint a) { return a & 0xff; }
+    static uint hi(uint a) { return (a >> 8) & 0xff; }
+    static uint to_adr(uint lo, uint hi) { return (hi << 8) | lo; }
 
-    Word Read(int ACCESS_MODE = POLICY.Read_AccessMode)(uint adr) const
+    uint Read(int ACCESS_MODE = POLICY.Read_AccessMode)(uint adr) const
     {
         static if (ACCESS_MODE == DIRECT)
             return ram[adr];
@@ -360,7 +360,7 @@ private:
             return rcallbacks[hi(adr)](this, adr);
     }
 
-    void Write(int ACCESS_MODE = POLICY.Write_AccessMode)(ushort adr, Word v)
+    void Write(int ACCESS_MODE = POLICY.Write_AccessMode)(uint adr, uint v)
     {
         static if (ACCESS_MODE == DIRECT)
             ram[adr] = v;
@@ -370,28 +370,28 @@ private:
             wcallbacks[hi(adr)](this, adr, v);
     }
 
-    Word ReadPC() { return Read!(POLICY.PC_AccessMode)(pc++); }
+    uint ReadPC() { return Read!(POLICY.PC_AccessMode)(pc++); }
 
-    Adr ReadPC8(int offs = 0)
+    uint ReadPC8(uint offs = 0)
     {
         return (Read!(POLICY.PC_AccessMode)(pc++) + offs) & 0xff;
     }
 
-    Adr ReadPC16(int offs = 0)
+    uint ReadPC16(uint offs = 0)
     {
         auto adr = to_adr(Read!(POLICY.PC_AccessMode)(pc),
                           Read!(POLICY.PC_AccessMode)(pc + 1));
         pc += 2;
-        return cast(Adr)(adr + offs);
+        return adr + offs;
     }
 
-    Adr Read16(int a, int offs = 0) const
+    uint Read16(uint a, uint offs = 0) const
     {
         return cast(Adr)(to_adr(Read(a), Read(a + 1)) + offs);
     }
 
     // Read operand from PC and create effective adress depeding on 'MODE'
-    Adr ReadEA(int MODE)()
+    uint ReadEA(int MODE)()
     {
         static if (MODE == ZP) return ReadPC8();
         static if (MODE == ZPX) return ReadPC8(x);
@@ -404,18 +404,18 @@ private:
         static if (MODE == IND) return Read16(ReadPC16()); // TODO: ZP wrap?
     }
 
-    void StoreEA(int MODE)(Word v)
+    void StoreEA(int MODE)(uint v)
     {
         auto adr = ReadEA!MODE();
         Write(adr, v);
     }
 
-    Word LoadEA(int MODE)()
+    uint LoadEA(int MODE)()
     {
         static if (MODE == IMM)
             return ReadPC();
         else {
-            Adr adr = ReadEA!MODE();
+            auto adr = ReadEA!MODE();
             return Read(adr);
         }
     }
@@ -445,7 +445,7 @@ private:
 
     static void Branch(int FLAG, bool v)(Machine m)
     {
-        int8_t diff = m.ReadPC();
+        byte diff = cast(byte)m.ReadPC();
         int d = m.check!(FLAG, v)();
         m.cycles += d;
         m.pc += (diff * d);
@@ -468,13 +468,13 @@ private:
 
     static void Bit(int REG, int MODE)(Machine m)
     {
-        Word z = m.LoadEA!MODE();
+        uint z = m.LoadEA!MODE();
         m.set_SR((m.get_SR() & 0x3d) | (z & 0xc0) | (!(z & m.a) << 1));
     }
 
     static void Cmp(int REG, int MODE)(Machine m)
     {
-        Word z = (~m.LoadEA!MODE()) & 0xff;
+        uint z = (~m.LoadEA!MODE()) & 0xff;
         uint rc = m.Reg!REG() + z + 1;
         m.set!SZC(rc);
     }
@@ -596,8 +596,12 @@ private:
 
     static void Transfer(int FROM, int TO)(Machine m)
     {
-        m.Reg!TO() = m.Reg!FROM();
-        static if (TO != SP) m.set_SZ!TO();
+        static if (TO == SP) {
+			m.Reg!TO() = cast(ubyte)m.Reg!FROM();
+		} else {
+			m.Reg!TO() = m.Reg!FROM();
+			m.set_SZ!TO();
+		}
     }
 
     /////////////////////////////////////////////////////////////////////////
@@ -607,7 +611,7 @@ private:
     /////////////////////////////////////////////////////////////////////////
 
 public:
-    static Instruction[] getInstructions(bool USE_BCD)()
+    static const (Instruction)[] getInstructions(bool USE_BCD)()
     {
         static const Instruction[] instructionTable = [
 
@@ -686,210 +690,243 @@ public:
             Instruction("dex", [ Opcode(0xca, 2, NONE, &Inc!(X, -1) ) ] ),
             Instruction("inx", [ Opcode(0xe8, 2, NONE, &Inc!(X, 1) ) ] ),
             Instruction("dey", [ Opcode(0x88, 2, NONE, &Inc!(Y, -1) ) ] ),
-            Instruction("iny", [ Opcode(0xc8, 2, NONE, &Inc!(Y, 1) ) ] )
+            Instruction("iny", [ Opcode(0xc8, 2, NONE, &Inc!(Y, 1) ) ] ),
 
-            /* Instruction("pha", { Opcode(0x48, 3, NONE, [](Machine m) { */
-            /*     m.stack[m.sp--] = m.a; */
-            /* } } ] ), */
+            Instruction("pha", [ Opcode(0x48, 3, NONE, function(Machine m) {
+                m.stack[m.sp--] = cast(Word)m.a;
+            } ) ] ),
 
-            /* Instruction("pla", { Opcode(0x68, 4, NONE, [](Machine m) { */
-            /*     m.a = m.stack[++m.sp]; */
-            /* } } ] ), */
+            Instruction("pla", [ Opcode(0x68, 4, NONE, function(Machine m) {
+                m.a = m.stack[++m.sp];
+            } ) ] ),
 
-            /* Instruction("php", { Opcode(0x08, 3, NONE, [](Machine m) { */
-            /*     m.stack[m.sp--] = m.get_SR(); */
-            /* } } ] ), */
+            Instruction("php", [ Opcode(0x08, 3, NONE, function(Machine m) {
+                m.stack[m.sp--] = cast(Word)m.get_SR();
+            } ) ] ),
 
-            /* Instruction("plp", { Opcode(0x28, 4, NONE, [](Machine m) { */
-            /*     m.set_SR(m.stack[++m.sp]); */
-            /* } } ] ), */
+            Instruction("plp", [ Opcode(0x28, 4, NONE, function(Machine m) {
+                m.set_SR(m.stack[++m.sp]);
+            } ) ] ),
 
-            /* Instruction("bcc", { Opcode(0x90, 2, REL, &Branch!(CARRY, CLEAR) }, ] ), */
-            /* Instruction("bcs", { Opcode(0xb0, 2, REL, &Branch!(CARRY, SET) }, ] ), */
-            /* Instruction("bne", { Opcode(0xd0, 2, REL, &Branch!(ZERO, CLEAR) }, ] ), */
-            /* Instruction("beq", { Opcode(0xf0, 2, REL, &Branch!(ZERO, SET) }, ] ), */
-            /* Instruction("bpl", { Opcode(0x10, 2, REL, &Branch!(SIGN, CLEAR) }, ] ), */
-            /* Instruction("bmi", { Opcode(0x30, 2, REL, &Branch!(SIGN, SET) }, ] ), */
-            /* Instruction("bvc", { Opcode(0x50, 2, REL, &Branch!(OVER, CLEAR) }, ] ), */
-            /* Instruction("bvs", { Opcode(0x70, 2, REL, &Branch!(OVER, SET) }, ] ), */
+            Instruction("bcc", [ Opcode(0x90, 2, REL, &Branch!(CARRY, CLEAR) ), ] ),
+            Instruction("bcs", [ Opcode(0xb0, 2, REL, &Branch!(CARRY, SET) ), ] ),
+            Instruction("bne", [ Opcode(0xd0, 2, REL, &Branch!(ZERO, CLEAR) ), ] ),
+            Instruction("beq", [ Opcode(0xf0, 2, REL, &Branch!(ZERO, SET) ), ] ),
+            Instruction("bpl", [ Opcode(0x10, 2, REL, &Branch!(SIGN, CLEAR) ), ] ),
+            Instruction("bmi", [ Opcode(0x30, 2, REL, &Branch!(SIGN, SET) ), ] ),
+            Instruction("bvc", [ Opcode(0x50, 2, REL, &Branch!(OVER, CLEAR) ), ] ),
+            Instruction("bvs", [ Opcode(0x70, 2, REL, &Branch!(OVER, SET) ), ] ),
 
-            /* Instruction("adc", { */
-            /*     Opcode(0x69, 2, IMM, &Adc!(IMM, USE_BCD)}, */
-            /*     Opcode(0x65, 3, ZP, &Adc!(ZP, USE_BCD)}, */
-            /*     Opcode(0x75, 4, ZPX, &Adc!(ZPX, USE_BCD)}, */
-            /*     Opcode(0x6d, 4, ABS, &Adc!(ABS, USE_BCD)}, */
-            /*     Opcode(0x7d, 4, ABSX, &Adc!(ABSX, USE_BCD)}, */
-            /*     Opcode(0x79, 4, ABSY, &Adc!(ABSY, USE_BCD)}, */
-            /*     Opcode(0x61, 6, INDX, &Adc!(INDX, USE_BCD)}, */
-            /*     Opcode(0x71, 5, INDY, &Adc!(INDY, USE_BCD)}, */
-            /* ] ), */
+            Instruction("adc", [
+                Opcode(0x69, 2, IMM, &Adc!(IMM, USE_BCD)),
+                Opcode(0x65, 3, ZP, &Adc!(ZP, USE_BCD)),
+                Opcode(0x75, 4, ZPX, &Adc!(ZPX, USE_BCD)),
+                Opcode(0x6d, 4, ABS, &Adc!(ABS, USE_BCD)),
+                Opcode(0x7d, 4, ABSX, &Adc!(ABSX, USE_BCD)),
+                Opcode(0x79, 4, ABSY, &Adc!(ABSY, USE_BCD)),
+                Opcode(0x61, 6, INDX, &Adc!(INDX, USE_BCD)),
+                Opcode(0x71, 5, INDY, &Adc!(INDY, USE_BCD)),
+            ] ),
 
-            /* Instruction("sbc", { */
-            /*     Opcode(0xe9, 2, IMM, &Sbc!(IMM, USE_BCD)}, */
-            /*     Opcode(0xe5, 3, ZP, &Sbc!(ZP, USE_BCD)}, */
-            /*     Opcode(0xf5, 4, ZPX, &Sbc!(ZPX, USE_BCD)}, */
-            /*     Opcode(0xed, 4, ABS, &Sbc!(ABS, USE_BCD)}, */
-            /*     Opcode(0xfd, 4, ABSX, &Sbc!(ABSX, USE_BCD)}, */
-            /*     Opcode(0xf9, 4, ABSY, &Sbc!(ABSY, USE_BCD)}, */
-            /*     Opcode(0xe1, 6, INDX, &Sbc!(INDX, USE_BCD)}, */
-            /*     Opcode(0xf1, 5, INDY, &Sbc!(INDY, USE_BCD)}, */
-            /* ] ), */
+            Instruction("sbc", [
+                Opcode(0xe9, 2, IMM, &Sbc!(IMM, USE_BCD)),
+                Opcode(0xe5, 3, ZP, &Sbc!(ZP, USE_BCD)),
+                Opcode(0xf5, 4, ZPX, &Sbc!(ZPX, USE_BCD)),
+                Opcode(0xed, 4, ABS, &Sbc!(ABS, USE_BCD)),
+                Opcode(0xfd, 4, ABSX, &Sbc!(ABSX, USE_BCD)),
+                Opcode(0xf9, 4, ABSY, &Sbc!(ABSY, USE_BCD)),
+                Opcode(0xe1, 6, INDX, &Sbc!(INDX, USE_BCD)),
+                Opcode(0xf1, 5, INDY, &Sbc!(INDY, USE_BCD)),
+            ] ),
 
-            /* Instruction("cmp", { */
-            /*     Opcode(0xc9, 2, IMM, &Cmp!(A, IMM)}, */
-            /*     Opcode(0xc5, 3, ZP, &Cmp!(A, ZP)}, */
-            /*     Opcode(0xd5, 4, ZPX, &Cmp!(A, ZPX)}, */
-            /*     Opcode(0xcd, 4, ABS, &Cmp!(A, ABS)}, */
-            /*     Opcode(0xdd, 4, ABSX, &Cmp!(A, ABSX)}, */
-            /*     Opcode(0xd9, 4, ABSY, &Cmp!(A, ABSY)}, */
-            /*     Opcode(0xc1, 6, INDX, &Cmp!(A, INDX)}, */
-            /*     Opcode(0xd1, 5, INDY, &Cmp!(A, INDY)}, */
-            /* ] ), */
+            Instruction("cmp", [
+                Opcode(0xc9, 2, IMM, &Cmp!(A, IMM)),
+                Opcode(0xc5, 3, ZP, &Cmp!(A, ZP)),
+                Opcode(0xd5, 4, ZPX, &Cmp!(A, ZPX)),
+                Opcode(0xcd, 4, ABS, &Cmp!(A, ABS)),
+                Opcode(0xdd, 4, ABSX, &Cmp!(A, ABSX)),
+                Opcode(0xd9, 4, ABSY, &Cmp!(A, ABSY)),
+                Opcode(0xc1, 6, INDX, &Cmp!(A, INDX)),
+                Opcode(0xd1, 5, INDY, &Cmp!(A, INDY)),
+            ] ),
 
-            /* Instruction("cpx", { */
-            /*     Opcode(0xe0, 2, IMM, &Cmp!(X, IMM)}, */
-            /*     Opcode(0xe4, 3, ZP, &Cmp!(X, ZP)}, */
-            /*     Opcode(0xec, 4, ABS, &Cmp!(X, ABS)}, */
-            /* ] ), */
+            Instruction("cpx", [
+                Opcode(0xe0, 2, IMM, &Cmp!(X, IMM)),
+                Opcode(0xe4, 3, ZP, &Cmp!(X, ZP)),
+                Opcode(0xec, 4, ABS, &Cmp!(X, ABS)),
+            ] ),
 
-            /* Instruction("cpy", { */
-            /*     Opcode(0xc0, 2, IMM, &Cmp!(Y, IMM)}, */
-            /*     Opcode(0xc4, 3, ZP, &Cmp!(Y, ZP)}, */
-            /*     Opcode(0xcc, 4, ABS, &Cmp!(Y, ABS)}, */
-            /* ] ), */
+            Instruction("cpy", [
+                Opcode(0xc0, 2, IMM, &Cmp!(Y, IMM)),
+                Opcode(0xc4, 3, ZP, &Cmp!(Y, ZP)),
+                Opcode(0xcc, 4, ABS, &Cmp!(Y, ABS)),
+            ] ),
 
-            /* Instruction("and", { */
-            /*     Opcode(0x29, 2, IMM, &And!(IMM)}, */
-            /*     Opcode(0x25, 3, ZP, &And!(ZP)}, */
-            /*     Opcode(0x35, 4, ZPX, &And!(ZPX)}, */
-            /*     Opcode(0x2d, 4, ABS, &And!(ABS)}, */
-            /*     Opcode(0x3d, 4, ABSX, &And!(ABSX)}, */
-            /*     Opcode(0x39, 4, ABSY, &And!(ABSY)}, */
-            /*     Opcode(0x21, 6, INDX, &And!(INDX)}, */
-            /*     Opcode(0x31, 5, INDY, &And!(INDY)}, */
-            /* ] ), */
+            Instruction("and", [
+                Opcode(0x29, 2, IMM, &And!(IMM)),
+                Opcode(0x25, 3, ZP, &And!(ZP)),
+                Opcode(0x35, 4, ZPX, &And!(ZPX)),
+                Opcode(0x2d, 4, ABS, &And!(ABS)),
+                Opcode(0x3d, 4, ABSX, &And!(ABSX)),
+                Opcode(0x39, 4, ABSY, &And!(ABSY)),
+                Opcode(0x21, 6, INDX, &And!(INDX)),
+                Opcode(0x31, 5, INDY, &And!(INDY)),
+            ] ),
 
-            /* Instruction("eor", { */
-            /*     Opcode(0x49, 2, IMM, &Eor!(IMM)}, */
-            /*     Opcode(0x45, 3, ZP, &Eor!(ZP)}, */
-            /*     Opcode(0x55, 4, ZPX, &Eor!(ZPX)}, */
-            /*     Opcode(0x4d, 4, ABS, &Eor!(ABS)}, */
-            /*     Opcode(0x5d, 4, ABSX, &Eor!(ABSX)}, */
-            /*     Opcode(0x59, 4, ABSY, &Eor!(ABSY)}, */
-            /*     Opcode(0x41, 6, INDX, &Eor!(INDX)}, */
-            /*     Opcode(0x51, 5, INDY, &Eor!(INDY)}, */
-            /* ] ), */
+            Instruction("eor", [
+                Opcode(0x49, 2, IMM, &Eor!(IMM)),
+                Opcode(0x45, 3, ZP, &Eor!(ZP)),
+                Opcode(0x55, 4, ZPX, &Eor!(ZPX)),
+                Opcode(0x4d, 4, ABS, &Eor!(ABS)),
+                Opcode(0x5d, 4, ABSX, &Eor!(ABSX)),
+                Opcode(0x59, 4, ABSY, &Eor!(ABSY)),
+                Opcode(0x41, 6, INDX, &Eor!(INDX)),
+                Opcode(0x51, 5, INDY, &Eor!(INDY)),
+            ] ),
 
-            /* Instruction("ora", { */
-            /*     Opcode(0x09, 2, IMM, &Ora!(IMM)}, */
-            /*     Opcode(0x05, 3, ZP, &Ora!(ZP)}, */
-            /*     Opcode(0x15, 4, ZPX, &Ora!(ZPX)}, */
-            /*     Opcode(0x0d, 4, ABS, &Ora!(ABS)}, */
-            /*     Opcode(0x1d, 4, ABSX, &Ora!(ABSX)}, */
-            /*     Opcode(0x19, 4, ABSY, &Ora!(ABSY)}, */
-            /*     Opcode(0x01, 6, INDX, &Ora!(INDX)}, */
-            /*     Opcode(0x11, 5, INDY, &Ora!(INDY)}, */
-            /* ] ), */
+            Instruction("ora", [
+                Opcode(0x09, 2, IMM, &Ora!(IMM)),
+                Opcode(0x05, 3, ZP, &Ora!(ZP)),
+                Opcode(0x15, 4, ZPX, &Ora!(ZPX)),
+                Opcode(0x0d, 4, ABS, &Ora!(ABS)),
+                Opcode(0x1d, 4, ABSX, &Ora!(ABSX)),
+                Opcode(0x19, 4, ABSY, &Ora!(ABSY)),
+                Opcode(0x01, 6, INDX, &Ora!(INDX)),
+                Opcode(0x11, 5, INDY, &Ora!(INDY)),
+            ] ),
 
-            /* Instruction("sec", { Opcode(0x38, 2, NONE, &Set!(CARRY, true) } ] ), */
-            /* Instruction("clc", { Opcode(0x18, 2, NONE, &Set!(CARRY, false) } ] ), */
-            /* Instruction("sei", { Opcode(0x58, 2, NONE, &Set!(IRQ, true) } ] ), */
-            /* Instruction("cli", { Opcode(0x78, 2, NONE, &Set!(IRQ, false) } ] ), */
-            /* Instruction("sed", { Opcode(0xf8, 2, NONE, &Set!(DECIMAL, true) } ] ), */
-            /* Instruction("cld", { Opcode(0xd8, 2, NONE, &Set!(DECIMAL, false) } ] ), */
-            /* Instruction("clv", { Opcode(0xb8, 2, NONE, &Set!(OVER, false) } ] ), */
+            Instruction("sec", [ Opcode(0x38, 2, NONE, &Set!(CARRY, true) ) ] ),
+            Instruction("clc", [ Opcode(0x18, 2, NONE, &Set!(CARRY, false) ) ] ),
+            Instruction("sei", [ Opcode(0x58, 2, NONE, &Set!(IRQ, true) ) ] ),
+            Instruction("cli", [ Opcode(0x78, 2, NONE, &Set!(IRQ, false) ) ] ),
+            Instruction("sed", [ Opcode(0xf8, 2, NONE, &Set!(DECIMAL, true) ) ] ),
+            Instruction("cld", [ Opcode(0xd8, 2, NONE, &Set!(DECIMAL, false) ) ] ),
+            Instruction("clv", [ Opcode(0xb8, 2, NONE, &Set!(OVER, false) ) ] ),
 
-            /* Instruction("lsr", { */
-            /*     Opcode(0x4a, 2, NONE, &Lsr!(A)}, */
-            /*     Opcode(0x4a, 2, ACC, &Lsr!(A)}, */
-            /*     Opcode(0x46, 5, ZP, &Lsr!(ZP)}, */
-            /*     Opcode(0x56, 6, ZPX, &Lsr!(ZPX)}, */
-            /*     Opcode(0x4e, 6, ABS, &Lsr!(ABS)}, */
-            /*     Opcode(0x5e, 7, ABSX, &Lsr!(ABSX)}, */
-            /* ] ), */
+            Instruction("lsr", [
+                Opcode(0x4a, 2, NONE, &Lsr!(A)),
+                Opcode(0x4a, 2, ACC, &Lsr!(A)),
+                Opcode(0x46, 5, ZP, &Lsr!(ZP)),
+                Opcode(0x56, 6, ZPX, &Lsr!(ZPX)),
+                Opcode(0x4e, 6, ABS, &Lsr!(ABS)),
+                Opcode(0x5e, 7, ABSX, &Lsr!(ABSX)),
+            ] ),
 
-            /* Instruction("asl", { */
-            /*     Opcode(0x0a, 2, NONE, &Asl!(A)}, */
-            /*     Opcode(0x0a, 2, ACC, &Asl!(A)}, */
-            /*     Opcode(0x06, 5, ZP, &Asl!(ZP)}, */
-            /*     Opcode(0x16, 6, ZPX, &Asl!(ZPX)}, */
-            /*     Opcode(0x0e, 6, ABS, &Asl!(ABS)}, */
-            /*     Opcode(0x1e, 7, ABSX, &Asl!(ABSX)}, */
-            /* ] ), */
+            Instruction("asl", [
+                Opcode(0x0a, 2, NONE, &Asl!(A)),
+                Opcode(0x0a, 2, ACC, &Asl!(A)),
+                Opcode(0x06, 5, ZP, &Asl!(ZP)),
+                Opcode(0x16, 6, ZPX, &Asl!(ZPX)),
+                Opcode(0x0e, 6, ABS, &Asl!(ABS)),
+                Opcode(0x1e, 7, ABSX, &Asl!(ABSX)),
+            ] ),
 
-            /* Instruction("ror", { */
-            /*     Opcode(0x6a, 2, NONE, &Ror!(A)}, */
-            /*     Opcode(0x6a, 2, ACC, &Ror!(A)}, */
-            /*     Opcode(0x66, 5, ZP, &Ror!(ZP)}, */
-            /*     Opcode(0x76, 6, ZPX, &Ror!(ZPX)}, */
-            /*     Opcode(0x6e, 6, ABS, &Ror!(ABS)}, */
-            /*     Opcode(0x7e, 7, ABSX, &Ror!(ABSX)}, */
-            /* ] ), */
+            Instruction("ror", [
+                Opcode(0x6a, 2, NONE, &Ror!(A)),
+                Opcode(0x6a, 2, ACC, &Ror!(A)),
+                Opcode(0x66, 5, ZP, &Ror!(ZP)),
+                Opcode(0x76, 6, ZPX, &Ror!(ZPX)),
+                Opcode(0x6e, 6, ABS, &Ror!(ABS)),
+                Opcode(0x7e, 7, ABSX, &Ror!(ABSX)),
+            ] ),
 
-            /* Instruction("rol", { */
-            /*     Opcode(0x2a, 2, NONE, &Rol!(A)}, */
-            /*     Opcode(0x2a, 2, ACC, &Rol!(A)}, */
-            /*     Opcode(0x26, 5, ZP, &Rol!(ZP)}, */
-            /*     Opcode(0x36, 6, ZPX, &Rol!(ZPX)}, */
-            /*     Opcode(0x2e, 6, ABS, &Rol!(ABS)}, */
-            /*     Opcode(0x3e, 7, ABSX, &Rol!(ABSX)}, */
-            /* ] ), */
+            Instruction("rol", [
+                Opcode(0x2a, 2, NONE, &Rol!(A)),
+                Opcode(0x2a, 2, ACC, &Rol!(A)),
+                Opcode(0x26, 5, ZP, &Rol!(ZP)),
+                Opcode(0x36, 6, ZPX, &Rol!(ZPX)),
+                Opcode(0x2e, 6, ABS, &Rol!(ABS)),
+                Opcode(0x3e, 7, ABSX, &Rol!(ABSX)),
+            ] ),
 
-            /* Instruction("bit", { */
-            /*     Opcode(0x24, 3, ZP, &Bit!(X, ZP)}, */
-            /*     Opcode(0x2c, 4, ABS, &Bit!(X, ABS)}, */
-            /* ] ), */
+            Instruction("bit", [
+                Opcode(0x24, 3, ZP, &Bit!(X, ZP)),
+                Opcode(0x2c, 4, ABS, &Bit!(X, ABS)),
+            ] ),
 
-            /* Instruction("rti", { */
-            /*     Opcode(0x40, 6, NONE, [](Machine m) { */
-            /*         m.set_SR(m.stack[++m.sp]);// & !(1<<BRK)); */
-            /*         m.pc = (m.stack[m.sp+1] | (m.stack[m.sp+2]<<8)); */
-            /*         m.sp += 2; */
-            /*     } } */
-            /* ] ), */
+            Instruction("rti", [
+                Opcode(0x40, 6, NONE, function(Machine m) {
+                    m.set_SR(m.stack[++m.sp]);// & !(1<<BRK));
+                    m.pc = (m.stack[m.sp+1] | (m.stack[m.sp+2]<<8));
+                    m.sp += 2;
+                } )
+            ] ),
 
-            /* Instruction("brk", { */
-            /*     Opcode(0x00, 7, NONE, [](Machine m) { */
-            /*         m.ReadPC(); */
-            /*         m.stack[m.sp--] = m.pc >> 8; */
-            /*         m.stack[m.sp--] = m.pc & 0xff; */
-            /*         m.stack[m.sp--] = m.get_SR();// | (1<<BRK); */
-            /*         m.pc = m.Read16(m.to_adr(0xfe, 0xff)); */
-            /*     } } */
-            /* ] ), */
+            Instruction("brk", [
+                Opcode(0x00, 7, NONE, function(Machine m) {
+                    m.ReadPC();
+                    m.stack[m.sp--] = m.pc >> 8;
+                    m.stack[m.sp--] = m.pc & 0xff;
+                    m.stack[m.sp--] = cast(Word)m.get_SR();// | (1<<BRK);
+                    m.pc = cast(ushort)m.Read16(m.to_adr(0xfe, 0xff));
+                } )
+            ] ),
 
-            /* Instruction("rts", { */
-            /*     Opcode(0x60, 6, NONE, [](Machine m) { */
-            /*         m.pc = (m.stack[m.sp+1] | (m.stack[m.sp+2]<<8))+1; */
-            /*         m.sp += 2; */
-            /*     } } */
-            /* ] ), */
+            Instruction("rts", [
+                Opcode(0x60, 6, NONE, function(Machine m) {
+                    m.pc = cast(ushort)((m.stack[m.sp+1] | (m.stack[m.sp+2]<<8))+1);
+                    m.sp += 2;
+                } )
+            ] ),
 
-            /* Instruction("jmp", { */
-            /*     Opcode(0x4c, 3, ABS, [](Machine m) { */
-            /*         m.pc = m.ReadPC16(); */
-            /*     ] ), */
-            /*     Opcode(0x6c, 5, IND, [](Machine m) { */
-            /*         m.pc = m.Read16(m.ReadPC16()); */
-            /*     } } */
-            /* ] ), */
+            Instruction("jmp", [
+                Opcode(0x4c, 3, ABS, function(Machine m) {
+                    m.pc = cast(ushort)m.ReadPC16();
+                } ),
+                Opcode(0x6c, 5, IND, function(Machine m) {
+                    m.pc = cast(ushort)m.Read16(m.ReadPC16());
+                } )
+            ] ),
 
-            /* Instruction("jsr", { */
-            /*     Opcode(0x20, 6, ABS, [](Machine m) { */
-            /*         m.stack[m.sp--] = (m.pc+1) >> 8; */
-            /*         m.stack[m.sp--] = (m.pc+1) & 0xff; */
-            /*         m.pc = m.ReadPC16(); */
-            /*     } } */
-            /* ] ), */
+            Instruction("jsr", [
+                Opcode(0x20, 6, ABS, function(Machine m) {
+                    m.stack[m.sp--] = cast(Word)((m.pc+1) >> 8);
+                    m.stack[m.sp--] = cast(Word)((m.pc+1) & 0xff);
+                    m.pc = cast(ushort)m.ReadPC16();
+                } )
+            ] ),
 
         ];
         return instructionTable;
     }
 };
 
+
+void sort()
+{
+	import std.stdio;
+
+	static const ubyte[] sortCode = [ 
+				 0xa0, 0x00, 0x84, 0x32, 0xb1, 0x30, 0xaa, 0xc8, 0xca, 0xb1,
+				 0x30, 0xc8, 0xd1, 0x30, 0x90, 0x10, 0xf0, 0x0e, 0x48, 0xb1,
+				 0x30, 0x88, 0x91, 0x30, 0x68, 0xc8, 0x91, 0x30, 0xa9, 0xff,
+				 0x85, 0x32, 0xca, 0xd0, 0xe6, 0x24, 0x32, 0x30, 0xd9, 0x60 ];
+
+	static const ubyte[] data = [
+				 0,   19, 73,  2,   54,  97,  21,  45,  66,  13, 139, 56,  220, 50,
+				 30,  20, 67,  111, 109, 175, 4,   66,  100, 19, 73,  2,   54,  97,
+				 21,  45, 66,  13,  139, 56,  220, 50,  30,  20, 67,  111, 109, 175,
+				 4,   66, 100, 19,  73,  2,   54,  97,  21,  45, 66,  13,  139, 56,
+				 220, 50, 30,  20,  67,  111, 109, 175, 4,   66, 100
+	];
+
+    auto m = new Machine!DefaultPolicy();
+    for (auto i = 0; i < data.length; i++)
+        m.writeRam(0x2000 + i, data[i]);
+    for (auto i = 0; i < sortCode.length; i++)
+        m.writeRam(0x1000 + i, sortCode[i]);
+    m.writeRam(0x30, 0x00);
+    m.writeRam(0x31, 0x20);
+    m.writeRam(0x2000, cast(ubyte)(data.length - 1));
+    m.setPC(0x1000);
+	m.run(50000000);
+    for (auto i = 0; i < data.length; i++)
+		writeln(m.readRam(0x2000 + i));
+}
 int main()
 {
 	Machine!DefaultPolicy m;
+	sort();
 	return 0;
 
 }

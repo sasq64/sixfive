@@ -38,7 +38,7 @@ enum EmulatedMemoryAccess
     CALLBACK // Access banks via function pointer, behavour can be customized
 };
 
-// The Policy defines the compile time settings for the emulator
+// The Policy defines the compile & runtime time settings for the emulator
 struct DefaultPolicy
 {
 	DefaultPolicy() {}
@@ -53,7 +53,6 @@ struct DefaultPolicy
     static constexpr int Read_AccessMode = CALLBACK;
     static constexpr int Write_AccessMode = CALLBACK;
 
-    static constexpr bool Debug = false;
     static constexpr int MemSize = 65536;
 
     // This function is run after each opcode. Return true to stop emulation.
@@ -214,7 +213,7 @@ template <typename POLICY = DefaultPolicy> struct Machine
 
     uint8_t regSR() const { return sr; }
 
-    void setPC(const int16_t& p) { pc = p; }
+	void setPC(const int16_t& p) { pc = p; }
 
     uint32_t run(uint32_t runc = 0x01000000)
     {
@@ -432,7 +431,7 @@ private:
         if constexpr (MODE == ABSY) return ReadPC16(y);
         if constexpr (MODE == INDX) return Read16(ReadPC8(x));
         if constexpr (MODE == INDY) return Read16(ReadPC8(), y);
-        if constexpr (MODE == IND) return Read16(ReadPC16()); // TODO: ZP wrap?
+        if constexpr (MODE == IND) return Read16(ReadPC16());
     }
 
     template <int MODE> inline void StoreEA(unsigned v)
