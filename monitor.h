@@ -16,7 +16,7 @@ constexpr static const char* modeTemplate[] = {
 	"",
 	"A",
 
-	"SIZE2",
+	//"SIZE2",
 
 	"#$%02x",
 	"$%04x",
@@ -27,7 +27,7 @@ constexpr static const char* modeTemplate[] = {
 	"($%02x,x)",
 	"($%02x),y",
 
-	"SIZE3",
+	//"SIZE3",
 
 	"($%04x)",
 	"$%04x",
@@ -45,8 +45,8 @@ std::string disasm(uint16_t& org, uint8_t* mem)
                 int v = 0;
                 auto* orgmem = mem;
                 mem++;
-                if (op.mode > SIZE2) v = *mem++;
-                if (op.mode > SIZE3) v = v | (*mem++) << 8;
+                if (sixfive::opSize(op.mode) > 1) v = *mem++;
+                if (sixfive::opSize(op.mode) > 2) v = v | (*mem++) << 8;
                 if (op.mode == REL) v = ((int8_t)v) + 2 + org;
                 org += (mem - orgmem);
                 if (op.mode == NONE) return ins.name;

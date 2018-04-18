@@ -91,9 +91,9 @@ int assembleLine(const std::string &line, uint8_t *output, int pc) {
 						//printf("Matched %02x\n", op.code);
 						auto saved = output;
 						*output++ = op.code;
-						if(a.mode > SIZE2)
+						if(opSize(a.mode) > 1)
 							*output++ = a.val & 0xff;
-						if(a.mode > SIZE3)
+						if(opSize(a.mode) > 2)
 							*output++ = a.val >> 8;
 						return output - saved;
 					};

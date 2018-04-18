@@ -1,19 +1,18 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <tuple>
 #include <vector>
-#include <array>
 
 namespace sixfive {
 
 // Adressing modes
-enum AdressingMode
+enum AdressingMode : uint8_t
 {
     BAD,
     NONE,
     ACC,
-    SIZE2,
     IMM,
     REL,
     ZP,
@@ -21,12 +20,16 @@ enum AdressingMode
     ZPY,
     INDX,
     INDY,
-    SIZE3,
     IND,
     ABS,
     ABSX,
     ABSY,
 };
+
+static constexpr inline int opSize(AdressingMode am)
+{
+    return am >= IND ? 3 : (am >= IMM ? 2 : 1);
+}
 
 template <typename POLICY> struct Machine;
 
@@ -35,14 +38,14 @@ enum EmulatedMemoryAccess
     DIRECT,  // Access `ram` array directly; Means no bank switching, ROM areas
              // or IO areas
     BANKED,  // Access memory through `wbank` and `rbank`; Means no IO areas
-    CALLBACK // Access banks via function pointer, behavour can be customized
+    CALLBACK // Access memory via function pointer per bank
 };
 
 // The Policy defines the compile & runtime time settings for the emulator
 struct DefaultPolicy
 {
-	DefaultPolicy() {}
-	DefaultPolicy(Machine<DefaultPolicy>& m) {}
+    DefaultPolicy() {}
+    DefaultPolicy(Machine<DefaultPolicy>& m) {}
 
     static constexpr bool ExitOnStackWrap = true;
 
@@ -98,7 +101,7 @@ template <typename POLICY = DefaultPolicy> struct Machine
         OpFunc op;
         uint8_t code;
         uint8_t cycles;
-        uint8_t mode;
+        AdressingMode mode;
     };
 
     struct Instruction
@@ -189,7 +192,7 @@ template <typename POLICY = DefaultPolicy> struct Machine
     }
 
     void mapReadCallback(uint8_t bank, int len,
-                          uint8_t (*cb)(const Machine&, uint16_t a))
+                         uint8_t (*cb)(const Machine&, uint16_t a))
     {
         while (len > 0) {
             rcallbacks[bank++] = cb;
@@ -213,11 +216,11 @@ template <typename POLICY = DefaultPolicy> struct Machine
 
     uint8_t regSR() const { return sr; }
 
-	void setPC(const int16_t& p) { pc = p; }
+    void setPC(const int16_t& p) { pc = p; }
 
     uint32_t run(uint32_t runc = 0x01000000)
     {
-		auto& p = policy();
+        auto& p = policy();
 
         toCycles = cycles + runc;
         uint32_t opcodes = 0;
@@ -358,7 +361,10 @@ private:
         sr = (sr & ~SZ) | (Reg<REG>() & 0x80) | (!Reg<REG>() << 1);
     }
 
-    template <int FLAG> constexpr unsigned check() const { return sr & (1 << FLAG); }
+    template <int FLAG> constexpr unsigned check() const
+    {
+        return sr & (1 << FLAG);
+    }
 
     static constexpr bool SET = true;
     static constexpr bool CLEAR = false;
@@ -376,7 +382,10 @@ private:
 
     static constexpr unsigned lo(unsigned a) { return a & 0xff; }
     static constexpr unsigned hi(unsigned a) { return a >> 8; }
-    static constexpr unsigned to_adr(unsigned lo, unsigned hi) { return (hi << 8) | lo; }
+    static constexpr unsigned to_adr(unsigned lo, unsigned hi)
+    {
+        return (hi << 8) | lo;
+    }
 
     template <int ACCESS_MODE = POLICY::Read_AccessMode>
     unsigned Read(unsigned adr) const
@@ -456,10 +465,10 @@ private:
     ///
     /////////////////////////////////////////////////////////////////////////
 
-    template <int FLAG, bool v> static constexpr void Set(Machine& m)
+    template <int FLAG, bool ON> static constexpr void Set(Machine& m)
     {
-        if constexpr (FLAG == DECIMAL) m.setDec<v>();
-        m.sr = (m.sr & ~(1 << FLAG)) | (v << FLAG);
+        if constexpr (FLAG == DECIMAL) m.setDec<ON>();
+        m.sr = (m.sr & ~(1 << FLAG)) | (ON << FLAG);
     }
 
     template <int REG, int MODE> static constexpr void Store(Machine& m)
@@ -473,22 +482,22 @@ private:
         m.set_SZ<REG>();
     }
 
-    template <int FLAG, bool v> static constexpr void Branch(Machine& m)
+    template <int FLAG, bool ON> static constexpr void Branch(Machine& m)
     {
         int8_t diff = m.ReadPC();
-        unsigned d = m.check<FLAG, v>();
+        unsigned d = m.check<FLAG, ON>();
         m.cycles += d;
         m.pc += (diff * d);
     }
 
-    template <int MODE, int inc> static constexpr void Inc(Machine& m)
+    template <int MODE, int INC> static constexpr void Inc(Machine& m)
     {
         if constexpr (IsReg<MODE>()) {
-            m.Reg<MODE>() = (m.Reg<MODE>() + inc) & 0xff;
+            m.Reg<MODE>() = (m.Reg<MODE>() + INC) & 0xff;
             m.set_SZ<MODE>();
         } else {
             auto adr = m.ReadEA<MODE>();
-            auto rc = (m.Read(adr) + inc);
+            auto rc = (m.Read(adr) + INC);
             m.Write(adr, rc);
             m.set<SZ>(rc);
         }
@@ -637,8 +646,7 @@ private:
     /////////////////////////////////////////////////////////////////////////
 
 public:
-    template <bool USE_BCD = false>
-    static const auto& getInstructions()
+    template <bool USE_BCD = false> static const auto& getInstructions()
     {
         static const  std::vector<Instruction> instructionTable = {
 
