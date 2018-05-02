@@ -68,6 +68,8 @@ template <typename POLICY> void checkCode(bool dis)
     }
     printf("### AVG OPCODES: %d TOTAL OPS/CALLS/JUMPS: %d/%d/%d\n",
            opcodes / count, opcodes, calls, jumps);
+
+    //disasm((void*)&Machine<POLICY>::runMachine, true, r);
 }
 
 struct DirectPolicy : sixfive::DefaultPolicy {
@@ -170,7 +172,7 @@ static void Bench_emulate(benchmark::State& state)
     for (int i = 0; i < (int)sizeof(WEEK); i++)
         m.writeRam(0x1000 + i, WEEK[i]);
     m.setPC(0x1000);
-    m.run(5000);
+    m.run(5000000);
     while (state.KeepRunning()) {
         m.setPC(0x1000);
         m.run(5000);

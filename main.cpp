@@ -16,42 +16,12 @@
 #include <bbsutils/console.h>
 #include <bbsutils/editor.h>
 
-// clang-format off
-constexpr static const char* modeNames[] = { 
-	"ILLEGAL",
-	"NONE",
-	"ACC",
-
-	"SIZE2",
-
-	"#IMM",
-	"REL",
-
-	"$ZP",
-	"$ZP,X",
-	"$ZP,Y",
-	"$(ZP,X)",
-	"$(ZP),Y",
-
-	"SIZE3",
-
-	"($IND)",
-	"$ABS",
-	"$ABS,X",
-	"$ABS,Y",
-};
-// clang-format on
-
 // sixfive -s <source> -io [c64|simple|none] -break [adr] -trace
 
 struct DebugPolicy : public sixfive::DefaultPolicy
 {
 
     using Machine = sixfive::Machine<DebugPolicy>;
-
-    static constexpr uint16_t IOMASK = 0xf0;
-    static constexpr uint16_t IOBANK = 0xd0;
-
 
     Machine& machine;
 
@@ -168,8 +138,6 @@ struct CheckPolicy : public sixfive::DefaultPolicy
 
 struct IOPolicy : public sixfive::DefaultPolicy
 {
-    static constexpr uint16_t IOMASK = 0xff00;
-    static constexpr uint16_t IOBANK = 0xff00;
     static inline constexpr void writeIO(sixfive::Machine<IOPolicy>& m,
                                          uint16_t adr, uint8_t v)
     {}

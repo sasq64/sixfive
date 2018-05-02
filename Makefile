@@ -1,5 +1,5 @@
-all : boost/spirit.hpp build/build.ninja
-	ninja -C build
+all : boost/spirit.hpp
+	make -C build
 
 build/bulld.ninja :
 	mkdir -p build

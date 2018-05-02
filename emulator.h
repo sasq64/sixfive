@@ -99,8 +99,8 @@ template <typename POLICY = DefaultPolicy> struct Machine
             : code(code), cycles(cycles), mode(mode), op(op)
         {}
         OpFunc op;
-        uint8_t code;
         uint8_t cycles;
+        uint8_t code;
         AdressingMode mode;
     };
 
@@ -223,22 +223,20 @@ template <typename POLICY = DefaultPolicy> struct Machine
         auto& p = policy();
 
         toCycles = cycles + runc;
-        uint32_t opcodes = 0;
         while (cycles < toCycles) {
 
             if (POLICY::eachOp(p)) break;
-
             auto code = ReadPC();
-            if constexpr (POLICY::ExitOnStackWrap) {
-                if (code == 0x60 && sp == 0xff) return opcodes;
-            }
+            /* if constexpr (POLICY::ExitOnStackWrap) { */
+            /*     if (code == 0x60 && sp == 0xff) return 0; */
+            /* } */
             auto& op = jumpTable[code];
             op.op(*this);
             cycles += op.cycles;
-            opcodes++;
         }
-        return opcodes;
+        return 0;
     }
+
 
     auto regs() const { return std::make_tuple(a, x, y, sr, sp, pc); }
     auto regs() { return std::tie(a, x, y, sr, sp, pc); }
@@ -899,6 +897,12 @@ public:
 
             { "rts", {
                 { 0x60, 6, NONE, [](Machine& m) {
+                    if constexpr (POLICY::ExitOnStackWrap) {
+                        if (m.sp == 0xff) {
+                            m.cycles = m.toCycles;
+                            return;
+                        }
+                    }
                     m.pc = (m.stack[m.sp+1] | (m.stack[m.sp+2]<<8))+1;
                     m.sp += 2;
                 } }
