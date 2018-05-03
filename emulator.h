@@ -483,7 +483,7 @@ private:
     template <int FLAG, bool ON> static constexpr void Branch(Machine& m)
     {
         int8_t diff = m.ReadPC();
-        unsigned d = m.check<FLAG, ON>();
+        auto d = m.check<FLAG, ON>();
         m.cycles += d;
         m.pc += (diff * d);
     }
