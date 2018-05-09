@@ -6,6 +6,8 @@ I wanted to see if I could write a 6502 emulator...
 * Being as fast or _faster_ than earlier emulators
 * Being more _configurable_ than earlier emulators.
 * Being more _extensible_ than earlier emulators
+@ulend
+
 ---
 
 ```c++
@@ -26,4 +28,31 @@ class Machine {
 ```
 @[3](We use a `std::array` for our jumptable)
 @[6](And for our memory (which is 8bit of course))
-@[10-13](The simpilfied mainloop)
+@[9-12](The simpilfied mainloop)
+
+---
+
+Here is our opcode function:
+
+```c++
+    template <int FROM, int TO>
+    static constexpr void Transfer(Machine& m)
+    {
+        m.Reg<TO>() = m.Reg<FROM>();
+        if constexpr (TO != SP) m.set_SZ<TO>();
+    }
+```
+
+---
+
+And here are our jump table entries;
+
+```c++
+    { "tax", { { 0xaa, 2, NONE, Transfer<A, X> } } },
+    { "txa", { { 0x8a, 2, NONE, Transfer<X, A> } } },
+    { "tay", { { 0xa8, 2, NONE, Transfer<A, Y> } } },
+    { "tya", { { 0x98, 2, NONE, Transfer<Y, A> } } },
+    { "txs", { { 0x9a, 2, NONE, Transfer<X, SP> } } },
+    { "tsx", { { 0xba, 2, NONE, Transfer<SP, X> } } },
+```
+
