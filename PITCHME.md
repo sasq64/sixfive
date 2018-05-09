@@ -1,11 +1,35 @@
 
+# Emulating the 6502 using modern C++
+_by Jonas Minnberg_
+Investigating wether you can write traditionally size/performance
+sensitive code without macros, reduntant code and other ugliness
+
+---
+# The 6502
+
+@ul
+* Used in C64, NES, Atari 2600, Apple II etc
+* Around 155 opcodes (56 instructions)
+* Opcodes 1-3 bytes long
+* Uniquely identified by first byte
+@ulend
+
+---
 @ul
 I wanted to see if I could write a 6502 emulator...
 * Using modern C++
 * Without any _macros_ or _ifdefs_
 * Being as fast or _faster_ than earlier emulators
 * Being more _configurable_ than earlier emulators.
-* Being more _extensible_ than earlier emulators
+@ulend
+---
+# Jump table or switch statement ?
+---
+Jump table! becuase
+@ul
+* Better code separation
+* Allows for templated function calls
+* yeah
 @ulend
 
 ---
