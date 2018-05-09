@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8.4)
 project(sixfive)
 set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 
-set(APONE ../chipmachine/apone/mods)
+set(APONE ../apone/mods)
 
 set(SOURCE_FILES
 	main.cpp
