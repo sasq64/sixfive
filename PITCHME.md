@@ -11,7 +11,7 @@ So here are the beginnings of our emulator;
 
 ---
 
- ```c++
+```c++
 class Machine {
     using OpFunc = void (*op)(Machine&);
 
@@ -28,6 +28,8 @@ class Machine {
         }
     }
 }
+```
+
 @[3](We use a `std::array` for our jumptable)
 @[6](And for our memory (which is 8bit of course))
 @[10-13](The simpilfied mainloop)
