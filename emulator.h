@@ -879,18 +879,19 @@ public:
 
             { "rti", {
                 { 0x40, 6, NONE, [](Machine& m) {
-                    m.set_SR(m.stack[++m.sp]);// & !(1<<BRK));
-                    m.pc = (m.stack[m.sp+1] | (m.stack[m.sp+2]<<8));
-                    m.sp += 2;
+                    m.set_SR(m.stack[m.sp+1]);
+                    m.pc = (m.stack[m.sp+2] | (m.stack[m.sp+3]<<8));
+                    m.sp += 3;
                 } }
             } },
 
             { "brk", {
                 { 0x00, 7, NONE, [](Machine& m) {
                     m.ReadPC();
-                    m.stack[m.sp--] = m.pc >> 8;
-                    m.stack[m.sp--] = m.pc & 0xff;
-                    m.stack[m.sp--] = m.get_SR();// | (1<<BRK);
+                    m.stack[m.sp] = m.pc >> 8;
+                    m.stack[m.sp-1] = m.pc & 0xff;
+                    m.stack[m.sp-2] = m.get_SR();// | (1<<BRK);
+                    m.sp -= 3;
                     m.pc = m.Read16(m.to_adr(0xfe, 0xff));
                 } }
             } },

@@ -24,8 +24,7 @@ I wanted to see if I could write a 6502 emulator...
 * Using modern C++
 * Without any _macros_ or _ifdefs_
 * Being as fast or _faster_ than earlier emulators
-* Being more _configurable_ than earlier emulators.
-* Being more _extensible_ than earlier emulators
+* Being more _configurable/extensible_ than earlier emulators.
 
 ## The Code
 
@@ -40,7 +39,6 @@ call these functions _opcode functions_.
 Here are the beginnings of our emulator;
 
  ```c++
-
 class Machine {
 
     using OpFunc = void (*op)(Machine&);
@@ -101,7 +99,7 @@ to show you the rest. You can read the whole implementation at;
 https://github.com/sasq64/sixfive/blob/master/emulator.h
 
 
-## Issues
+## Speed
 
 So, as a rule I was aiming to generate similar machine code for my
 emulator to what the Vice emulator does, but I wanted to break out all
@@ -120,29 +118,32 @@ you can control these things.
 
 ### Disassemble it!
 
-My solution was to have a test that disassembled every opcode in the
-jumptable, and made sure that
+My solution was to have a test that disassembled every opcode function in
+the jump table, and count the total x86 opcodes, as well as the number of
+jumps and calls in each function. 
+
+This makes it possible to check that
 
 * The average size of each emulated opcode doesn't suddenly grow
-* That opcodes does not contain any calls, and preferably no branches
-whatsoever.
+* That opcodes does not contain any calls, and preferably no jumps
 
 It also allowed me to dive in and easily check the actual assembly of my
 functions when I was unsure.
 
 I used a third party disassembler called
-[Zydis](https://github.com/zyantific/zydis) for this;
+[Zydis](https://github.com/zyantific/zydis) for this. This is a simplified
+version of my opcode counting code;
 
 ```c++
     Result r;
     while (decoder.decodeInstruction(info)) {
-
+    
         if (info.mnemonic >= InstructionMnemonic::JA &&
             info.mnemonic <= InstructionMnemonic::JS)
             r.jumps++;
 
         switch (info.mnemonic) {
-        case InstructionMnemonic::RET: return;
+        case InstructionMnemonic::RET: return r;
         case InstructionMnemonic::CALL: r.calls++; break;
         default: break;
         }
@@ -151,7 +152,8 @@ I used a third party disassembler called
 ```
 
 This allowed me to easily count all the opcodes, and specifically the
-number of branches and calls, for each emulated opcode.
+number of branches and calls, for each emulated opcode. This is what it
+looks like when I run it:
 
 ```bash
 $ build/sixfive -O
@@ -237,6 +239,10 @@ this explaining that branch opcode.
 
 _BMI_ has no real reason to contain a branch -- I need to investigate
 after I'm done writing this.
+
+## Configurability
+
+What about configurability and extensibility ?
 
 
 ## A comparison
