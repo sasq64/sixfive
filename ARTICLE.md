@@ -61,8 +61,9 @@ class Machine {
 }
 ```
 
-Note that since we used a normal function pointer and not _pointer-to-members_
-our opcode functions needs to be static and get passed _this_ as an argument. 
+Note that since we used a normal function pointer and not
+a _pointer-to-member_, our opcode functions needs to be static and get
+passed _this_ as an argument. 
 
 ### The opcode functions
 
@@ -71,7 +72,8 @@ opcodes, which are pretty simple. All they do is move the contents of one
 register into another, and sets the _signed_ and _zero_ flags according to the
 value transferred -- unless the target register is the stack pointer.
 
-Here is our opcode function:
+Here is our opcode function, along with the two support function it
+uses:
 
 ```c++
     template <int FROM, int TO>
@@ -79,6 +81,19 @@ Here is our opcode function:
     {
         m.Reg<TO>() = m.Reg<FROM>();
         if constexpr (TO != SP) m.set_SZ<TO>();
+    }
+
+    template <int REG> constexpr auto& Reg()
+    {
+        if constexpr (REG == A) return a;
+        if constexpr (REG == X) return x;
+        if constexpr (REG == Y) return y;
+        if constexpr (REG == SP) return sp;
+    }
+
+    template <int REG> void set_SZ()
+    {
+        sr = (sr & ~SZ) | (Reg<REG>() & 0x80) | (!Reg<REG>() << 1);
     }
 ```
 

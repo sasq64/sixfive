@@ -145,7 +145,7 @@ static void Bench_sort(benchmark::State& state)
         for (int i = 1; i < (int)sizeof(data); i++)
             m.writeRam(0x2000 + i, data[i]);
         m.setPC(0x1000);
-        m.run(50000000);
+        m.run(5000000);
     }
 }
 BENCHMARK(Bench_sort);

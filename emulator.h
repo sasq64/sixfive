@@ -125,6 +125,7 @@ template <typename POLICY = DefaultPolicy> struct Machine
         cycles = 0;
         a = x = y = 0;
         sr = 0x30;
+        result = 0;
         toCycles = 0;
         for (int i = 0; i < 256; i++) {
             rbank[i] = wbank[i] = &ram[(i * 256) % POLICY::MemSize];
@@ -227,9 +228,6 @@ template <typename POLICY = DefaultPolicy> struct Machine
 
             if (POLICY::eachOp(p)) break;
             auto code = ReadPC();
-            /* if constexpr (POLICY::ExitOnStackWrap) { */
-            /*     if (code == 0x60 && sp == 0xff) return 0; */
-            /* } */
             auto& op = jumpTable[code];
             op.op(*this);
             cycles += op.cycles;
@@ -248,6 +246,9 @@ private:
     unsigned x;
     unsigned y;
     unsigned sr;
+
+    unsigned result;
+
     uint8_t sp;
 
     // 6502 RAM
@@ -273,8 +274,8 @@ private:
         return m.rbank[adr >> 8][adr & 0xff];
     }
 
-    uint32_t toCycles;
-    uint32_t cycles;
+    uint64_t toCycles;
+    uint64_t cycles;
 
     std::array<Opcode, 256> jumpTable_normal;
     std::array<Opcode, 256> jumpTable_bcd;
@@ -319,9 +320,9 @@ private:
     static constexpr auto SZC = S | Z | C;
     static constexpr auto SZCV = S | Z | C | V;
 
-    uint8_t get_SR() const { return sr; }
-
-    uint8_t lastSR = 0; // Only for the D bit
+    uint8_t get_SR() const { 
+        return sr  | ((result | (result>>2) ) & 0x80) | (!(result & 0xff) << 1) ;
+    }
 
     template <bool DEC> void setDec()
     {
@@ -340,15 +341,17 @@ private:
                 setDec<false>();
             }
         }
-        sr = s | 0x30;
+        result = ((s << 2) & 0x200) | !(s & Z);
+        sr = (s & ~SZ) | 0x30;
     }
 
     template <int BITS> void set(int res, int arg = 0)
     {
-        sr &= ~BITS;
+        if constexpr((BITS & (C|V)) != 0)
+            sr &= ~BITS;
 
-        if constexpr ((BITS & S) != 0) sr |= (res & 0x80); // Apply signed bit
-        if constexpr ((BITS & Z) != 0) sr |= (!(res & 0xff) << 1); // Apply zero
+        result = res;
+
         if constexpr ((BITS & C) != 0) sr |= ((res >> 8) & 1); // Apply carry
         if constexpr ((BITS & V) != 0)
             sr |= ((~(a ^ arg) & (a ^ res) & 0x80) >> 1); // Apply overflow
@@ -356,20 +359,22 @@ private:
 
     template <int REG> void set_SZ()
     {
-        sr = (sr & ~SZ) | (Reg<REG>() & 0x80) | (!Reg<REG>() << 1);
-    }
-
-    template <int FLAG> constexpr unsigned check() const
-    {
-        return sr & (1 << FLAG);
+        result = Reg<REG>();
     }
 
     static constexpr bool SET = true;
     static constexpr bool CLEAR = false;
 
+    constexpr unsigned carry() const
+    {
+        return sr & 1;
+    }
+
     template <int FLAG, bool v> constexpr bool check() const
     {
-        return (bool)(sr & (1 << FLAG)) == v;
+        if constexpr (FLAG == ZERO) return result & 0xff ? !v : v;
+        if constexpr (FLAG == SIGN) return result & 0x280 ? v : !v;
+        else return (bool)(sr & (1 << FLAG)) == v;
     }
 
     /////////////////////////////////////////////////////////////////////////
@@ -506,6 +511,7 @@ private:
     template <int REG, int MODE> static constexpr void Bit(Machine& m)
     {
         unsigned z = m.LoadEA<MODE>();
+        m.result = (z & m.a) | ((z & 0x80)<<2);
         m.set_SR((m.get_SR() & 0x3d) | (z & 0xc0) | (!(z & m.a) << 1));
     }
 
@@ -520,19 +526,19 @@ private:
     {
         if constexpr (DEC) {
             unsigned z = m.LoadEA<MODE>();
-            auto al = (m.a & 0xf) - (z & 0xf) + (m.check<CARRY>() - 1);
+            auto al = (m.a & 0xf) - (z & 0xf) + (m.carry() - 1);
             auto ah = (m.a >> 4) - (z >> 4);
             if (al & 0x10) {
                 al = (al - 6) & 0xf;
                 ah--;
             }
             if (ah & 0x10) ah = (ah - 6) & 0xf;
-            unsigned rc = m.a - z + (m.check<CARRY>() - 1);
+            unsigned rc = m.a - z + (m.carry() - 1);
             m.set<SZCV>(rc ^ 0x100, z);
             m.a = al | (ah << 4);
         } else {
             unsigned z = (~m.LoadEA<MODE>()) & 0xff;
-            unsigned rc = m.a + z + m.check<CARRY>();
+            unsigned rc = m.a + z + m.carry();
             m.set<SZCV>(rc, z);
             m.a = rc & 0xff;
         }
@@ -541,9 +547,9 @@ private:
     template <int MODE, bool DEC = false> static constexpr void Adc(Machine& m)
     {
         unsigned z = m.LoadEA<MODE>();
-        unsigned rc = m.a + z + m.check<CARRY>();
+        unsigned rc = m.a + z + m.carry();
         if constexpr (DEC) {
-            if (((m.a & 0xf) + (z & 0xf) + m.check<CARRY>()) >= 10) rc += 6;
+            if (((m.a & 0xf) + (z & 0xf) + m.carry()) >= 10) rc += 6;
             if ((rc & 0xff0) > 0x90) rc += 0x60;
         }
         m.set<SZCV>(rc, z);
@@ -603,13 +609,13 @@ private:
     template <int MODE> static constexpr void Ror(Machine& m)
     {
         if constexpr (MODE == A) {
-            unsigned rc = ((m.sr << 8) | m.a) >> 1;
+            unsigned rc = (((m.sr << 8) & 0x100) | m.a) >> 1;
             m.sr = (m.sr & 0xfe) | (m.a & 1);
             m.a = rc & 0xff;
             m.set_SZ<A>();
         } else {
             auto adr = m.ReadEA<MODE>();
-            unsigned rc = m.Read(adr) | (m.sr << 8);
+            unsigned rc = m.Read(adr) | ((m.sr << 8) & 0x100);
             m.sr = (m.sr & 0xfe) | (rc & 1);
             rc >>= 1;
             m.Write(adr, rc);
@@ -620,12 +626,12 @@ private:
     template <int MODE> static constexpr void Rol(Machine& m)
     {
         if constexpr (MODE == A) {
-            unsigned rc = (m.a << 1) | m.check<CARRY>();
+            unsigned rc = (m.a << 1) | m.carry();
             m.set<SZC>(rc);
             m.a = rc & 0xff;
         } else {
             auto adr = m.ReadEA<MODE>();
-            unsigned rc = (m.Read(adr) << 1) | m.check<CARRY>();
+            unsigned rc = (m.Read(adr) << 1) | m.carry();
             m.Write(adr, rc);
             m.set<SZC>(rc);
         }
@@ -920,8 +926,9 @@ public:
 
             { "jsr", {
                 { 0x20, 6, ABS, [](Machine& m) {
-                    m.stack[m.sp--] = (m.pc+1) >> 8;
-                    m.stack[m.sp--] = (m.pc+1) & 0xff;
+                    m.stack[m.sp] = (m.pc+1) >> 8;
+                    m.stack[m.sp-1] = (m.pc+1) & 0xff;
+                    m.sp -= 2;
                     m.pc = m.ReadPC16();
                 } }
             } },
