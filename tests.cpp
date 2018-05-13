@@ -34,8 +34,7 @@ std::vector<std::string> disasm(void* ptr, struct Result& r)
     r.calls = r.opcodes = r.jumps = 0;
     while (decoder.decodeInstruction(info)) {
         if (!(info.flags & IF_ERROR_MASK))
-            res.push_back(utils::format("    %s", formatter.formatInstruction(info)));
-
+            res.push_back(formatter.formatInstruction(info));
         if (info.mnemonic >= InstructionMnemonic::JA &&
             info.mnemonic <= InstructionMnemonic::JS)
             r.jumps++;
@@ -63,15 +62,12 @@ template <typename POLICY> void checkCode(bool dis)
     int opcodes = 0;
 
     for (const auto& i : Machine<POLICY>::getInstructions()) {
-        for (int j=0; j<i.opcodes.size(); j++) {
-            const auto& o = i.opcodes[j];
+        for (const auto& o : i.opcodes) {
             auto res = disasm((void*)o.op, r);
-            auto bytes = 0;
-            //if(j < i.opcodes.size()-1) bytes = (char*)i.opcodes[j+1].op - (char*)o.op;
-            printf("%p %s (%d bytes)  (%d/%d/%d)\n", (void*)o.op, i.name, bytes, r.opcodes, r.calls, r.jumps);
+            printf("%s (%d/%d/%d)\n", i.name, r.opcodes, r.calls, r.jumps);
             if(dis) {
                 for(const auto& line : res) {
-                    puts(line.c_str());
+                    printf("    %s\n", (line.c_str()));
                 }
             }
 

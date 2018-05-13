@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <tuple>
 #include <vector>
+#include <limits>
 
 namespace sixfive {
 
@@ -122,11 +123,9 @@ template <typename POLICY = DefaultPolicy> struct Machine
         sp = 0xff;
         ram.fill(0);
         stack = &ram[0x100];
-        cycles = 0;
         a = x = y = 0;
         sr = 0x30;
         result = 0;
-        toCycles = 0;
         for (int i = 0; i < 256; i++) {
             rbank[i] = wbank[i] = &ram[(i * 256) % POLICY::MemSize];
             rcallbacks[i] = &read_bank;
@@ -219,13 +218,11 @@ template <typename POLICY = DefaultPolicy> struct Machine
 
     void setPC(const int16_t& p) { pc = p; }
 
-    uint32_t run(uint32_t runc = 0x01000000)
+    uint32_t run(uint32_t toCycles = 0x01000000)
     {
         auto& p = policy();
-
-        toCycles = cycles + runc;
+        cycles = 0;
         while (cycles < toCycles) {
-
             if (POLICY::eachOp(p)) break;
             auto code = ReadPC();
             auto& op = jumpTable[code];
@@ -274,8 +271,7 @@ private:
         return m.rbank[adr >> 8][adr & 0xff];
     }
 
-    uint64_t toCycles;
-    uint64_t cycles;
+    uint32_t cycles;
 
     std::array<Opcode, 256> jumpTable_normal;
     std::array<Opcode, 256> jumpTable_bcd;
@@ -906,7 +902,7 @@ public:
                 { 0x60, 6, NONE, [](Machine& m) {
                     if constexpr (POLICY::ExitOnStackWrap) {
                         if (m.sp == 0xff) {
-                            m.cycles = m.toCycles;
+                            m.cycles = std::numeric_limits<decltype(m.cycles)>::max()-32;
                             return;
                         }
                     }
