@@ -2,6 +2,12 @@
 #include "zyan-disassembler-engine/Zydis/Zydis.hpp"
 #include <benchmark/benchmark.h>
 
+#include <coreutils/format.h>
+
+#include <cstdio>
+#include <vector>
+#include <string>
+
 namespace sixfive {
 
 struct Result
@@ -12,9 +18,9 @@ struct Result
     bool tooLong;
 };
 
-void disasm(void* ptr, bool dis, struct Result& r)
+std::vector<std::string> disasm(void* ptr, struct Result& r)
 {
-
+    std::vector<std::string> res;
     using namespace Zydis;
 
     MemoryInput input(ptr, 0x200);
@@ -27,22 +33,22 @@ void disasm(void* ptr, bool dis, struct Result& r)
     r.tooLong = false;
     r.calls = r.opcodes = r.jumps = 0;
     while (decoder.decodeInstruction(info)) {
-        if (dis && !(info.flags & IF_ERROR_MASK))
-            printf("    %s\n", formatter.formatInstruction(info));
+        if (!(info.flags & IF_ERROR_MASK))
+            res.push_back(utils::format("    %s", formatter.formatInstruction(info)));
 
         if (info.mnemonic >= InstructionMnemonic::JA &&
             info.mnemonic <= InstructionMnemonic::JS)
             r.jumps++;
 
         switch (info.mnemonic) {
-        case InstructionMnemonic::RET: return;
+        case InstructionMnemonic::RET: return res;
         case InstructionMnemonic::CALL: r.calls++; break;
         default: break;
         }
         r.opcodes++;
     }
     r.tooLong = true;
-    return;
+    return res;
 }
 
 template <typename POLICY> void checkCode(bool dis)
@@ -57,9 +63,18 @@ template <typename POLICY> void checkCode(bool dis)
     int opcodes = 0;
 
     for (const auto& i : Machine<POLICY>::getInstructions()) {
-        for (const auto& o : i.opcodes) {
-            disasm((void*)o.op, dis, r);
-            printf("%s (%d/%d/%d)\n", i.name, r.opcodes, r.calls, r.jumps);
+        for (int j=0; j<i.opcodes.size(); j++) {
+            const auto& o = i.opcodes[j];
+            auto res = disasm((void*)o.op, r);
+            auto bytes = 0;
+            //if(j < i.opcodes.size()-1) bytes = (char*)i.opcodes[j+1].op - (char*)o.op;
+            printf("%p %s (%d bytes)  (%d/%d/%d)\n", (void*)o.op, i.name, bytes, r.opcodes, r.calls, r.jumps);
+            if(dis) {
+                for(const auto& line : res) {
+                    puts(line.c_str());
+                }
+            }
+
             jumps += r.jumps;
             calls += r.calls;
             opcodes += r.opcodes;
