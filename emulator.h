@@ -343,19 +343,13 @@ private:
 
     template <int BITS> void set(int res, int arg = 0)
     {
-        if constexpr((BITS & (C|V)) != 0)
-            sr &= ~BITS;
-
         result = res;
 
+        if constexpr((BITS & (C|V)) != 0)
+            sr &= ~BITS;
         if constexpr ((BITS & C) != 0) sr |= ((res >> 8) & 1); // Apply carry
         if constexpr ((BITS & V) != 0)
             sr |= ((~(a ^ arg) & (a ^ res) & 0x80) >> 1); // Apply overflow
-    }
-
-    template <int REG> void set_SZ()
-    {
-        result = Reg<REG>();
     }
 
     static constexpr bool SET = true;
@@ -478,23 +472,25 @@ private:
     template <int REG, int MODE> static constexpr void Load(Machine& m)
     {
         m.Reg<REG>() = m.LoadEA<MODE>();
-        m.set_SZ<REG>();
+        m.set<SZ>(m.Reg<REG>());
     }
 
     template <int FLAG, bool ON> static constexpr void Branch(Machine& m)
     {
-        int8_t diff = m.ReadPC();
+		auto pc = m.pc;
+ 		int8_t diff = m.Read<POLICY::PC_AccessMode>(pc++); 
         if(m.check<FLAG, ON>()) {
-            m.cycles++;
-            m.pc += diff;
-        }
+            pc += diff;
+			m.cycles++;
+		}
+		m.pc = pc;
     }
 
     template <int MODE, int INC> static constexpr void Inc(Machine& m)
     {
         if constexpr (IsReg<MODE>()) {
             m.Reg<MODE>() = (m.Reg<MODE>() + INC) & 0xff;
-            m.set_SZ<MODE>();
+            m.set<SZ>(m.Reg<MODE>());
         } else {
             auto adr = m.ReadEA<MODE>();
             auto rc = (m.Read(adr) + INC);
@@ -556,19 +552,19 @@ private:
     template <int MODE> static constexpr void And(Machine& m)
     {
         m.a &= m.LoadEA<MODE>();
-        m.set_SZ<A>();
+        m.set<SZ>(m.a);
     }
 
     template <int MODE> static constexpr void Ora(Machine& m)
     {
         m.a |= m.LoadEA<MODE>();
-        m.set_SZ<A>();
+        m.set<SZ>(m.a);
     }
 
     template <int MODE> static constexpr void Eor(Machine& m)
     {
         m.a ^= m.LoadEA<MODE>();
-        m.set_SZ<A>();
+        m.set<SZ>(m.a);
     }
 
     // === SHIFTS & ROTATES
@@ -592,7 +588,7 @@ private:
         if constexpr (MODE == A) {
             m.sr = (m.sr & 0xfe) | (m.a & 1);
             m.a >>= 1;
-            m.set_SZ<A>();
+            m.set<SZ>(m.a);
         } else {
             auto adr = m.ReadEA<MODE>();
             unsigned rc = m.Read(adr);
@@ -609,7 +605,7 @@ private:
             unsigned rc = (((m.sr << 8) & 0x100) | m.a) >> 1;
             m.sr = (m.sr & 0xfe) | (m.a & 1);
             m.a = rc & 0xff;
-            m.set_SZ<A>();
+            m.set<SZ>(m.a);
         } else {
             auto adr = m.ReadEA<MODE>();
             unsigned rc = m.Read(adr) | ((m.sr << 8) & 0x100);
@@ -637,7 +633,7 @@ private:
     template <int FROM, int TO> static constexpr void Transfer(Machine& m)
     {
         m.Reg<TO>() = m.Reg<FROM>();
-        if constexpr (TO != SP) m.set_SZ<TO>();
+        if constexpr (TO != SP) m.set<SZ>(m.Reg<TO>());
     }
 
     /////////////////////////////////////////////////////////////////////////
