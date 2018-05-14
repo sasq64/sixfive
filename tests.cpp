@@ -67,7 +67,7 @@ template <typename POLICY> void checkCode(bool dis)
             printf("%s (%d/%d/%d)\n", i.name, r.opcodes, r.calls, r.jumps);
             if(dis) {
                 for(const auto& line : res) {
-                    printf("    %s\n", (line.c_str()));
+                    printf("    %s\n", line.c_str());
                 }
             }
 
@@ -88,6 +88,12 @@ struct DirectPolicy : sixfive::DefaultPolicy {
     static constexpr int PC_AccessMode = DIRECT;
     static constexpr int Read_AccessMode = DIRECT;
     static constexpr int Write_AccessMode = DIRECT;
+
+    static inline int opcodes = 0;
+
+    static bool eachOp(DirectPolicy&) { 
+        return false;
+    }
 };
 
 void checkAllCode(bool dis)
@@ -146,7 +152,7 @@ static void Bench_sort(benchmark::State& state)
     m.writeRam(0x31, 0x20);
     m.writeRam(0x2000, sizeof(data) - 1);
     m.setPC(0x1000);
-    printf("Opcodes %d\n", m.run(50000000));
+    m.run(50000000);
     // uint8_t temp[256];
     // m.readRam(0x2000, temp, sizeof(data));
     // for(int i=0; i<sizeof(data)+1; i++)

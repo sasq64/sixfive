@@ -484,9 +484,10 @@ private:
     template <int FLAG, bool ON> static constexpr void Branch(Machine& m)
     {
         int8_t diff = m.ReadPC();
-        auto d = m.check<FLAG, ON>();
-        m.cycles += d;
-        m.pc += (diff * d);
+        if(m.check<FLAG, ON>()) {
+            m.cycles++;
+            m.pc += diff;
+        }
     }
 
     template <int MODE, int INC> static constexpr void Inc(Machine& m)
