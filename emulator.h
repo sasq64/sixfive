@@ -484,9 +484,10 @@ private:
     template <int FLAG, bool ON> static constexpr void Branch(Machine& m)
     {
         int8_t diff = m.ReadPC();
-        auto d = m.check<FLAG, ON>();
-        m.cycles += d;
-        m.pc += (diff * d);
+        if(m.check<FLAG, ON>()) {
+            m.cycles++;
+            m.pc += diff;
+        }
     }
 
     template <int MODE, int INC> static constexpr void Inc(Machine& m)
@@ -508,7 +509,7 @@ private:
     {
         unsigned z = m.LoadEA<MODE>();
         m.result = (z & m.a) | ((z & 0x80)<<2);
-        m.set_SR((m.get_SR() & 0x3d) | (z & 0xc0) | (!(z & m.a) << 1));
+        m.sr = (m.sr & ~V) | (z & V);
     }
 
     template <int REG, int MODE> static constexpr void Cmp(Machine& m)
