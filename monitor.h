@@ -16,8 +16,6 @@ constexpr static const char* modeTemplate[] = {
 	"",
 	"A",
 
-	//"SIZE2",
-
 	"#$%02x",
 	"$%04x",
 
@@ -26,8 +24,6 @@ constexpr static const char* modeTemplate[] = {
 	"$%02x,y",
 	"($%02x,x)",
 	"($%02x),y",
-
-	//"SIZE3",
 
 	"($%04x)",
 	"$%04x",

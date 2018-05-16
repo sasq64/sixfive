@@ -2,9 +2,9 @@
 
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <tuple>
 #include <vector>
-#include <limits>
 
 namespace sixfive {
 
@@ -65,29 +65,6 @@ struct DefaultPolicy
 
 template <typename POLICY = DefaultPolicy> struct Machine
 {
-    enum REGNAME
-    {
-        A = 20,
-        X,
-        Y,
-        SP,
-        SR
-    };
-
-    template <int MODE> constexpr static bool IsReg() { return MODE >= A; }
-
-    enum STATUSFLAGS
-    {
-        CARRY,
-        ZERO,
-        IRQ,
-        DECIMAL,
-        BRK,
-        xXx,
-        OVER,
-        SIGN
-    };
-
     using Adr = uint16_t;
     using Word = uint8_t;
 
@@ -214,7 +191,7 @@ template <typename POLICY = DefaultPolicy> struct Machine
     uint8_t regSP() const { return sp; }
     Adr regPC() const { return pc; }
 
-    uint8_t regSR() const { return sr; }
+    uint8_t regSR() const { return get_SR(); }
 
     void setPC(const int16_t& p) { pc = p; }
 
@@ -232,27 +209,47 @@ template <typename POLICY = DefaultPolicy> struct Machine
         return 0;
     }
 
-
     auto regs() const { return std::make_tuple(a, x, y, sr, sp, pc); }
     auto regs() { return std::tie(a, x, y, sr, sp, pc); }
 
 private:
+
+    enum REGNAME
+    {
+        A = 20,
+        X,
+        Y,
+        SP,
+        SR
+    };
+
+    template <int MODE> constexpr static bool IsReg() { return MODE >= A; }
+
     // The 6502 registers
     unsigned pc;
     unsigned a;
     unsigned x;
     unsigned y;
-    unsigned sr;
 
+    // Status Register _except_for S and Z flags
+    unsigned sr;
+    // Result of last operation; Used for S and Z flags.
+    // result & 0xff == 0 => Z flag is set
+    // result & 0x280 !- 0 => S flag is set
     unsigned result;
 
     uint8_t sp;
 
-    // 6502 RAM
-    std::array<Word, POLICY::MemSize> ram;
+    uint32_t cycles;
+
+    // Current jumptable
+    const Opcode* jumpTable;
 
     // Stack normally points to ram[0x100];
     Word* stack;
+
+    // 6502 RAM
+    std::array<Word, POLICY::MemSize> ram;
 
     // Banks normally point to corresponding ram
     std::array<const Word*, 256> rbank;
@@ -260,6 +257,10 @@ private:
 
     std::array<Word (*)(const Machine&, uint16_t), 256> rcallbacks;
     std::array<void (*)(Machine&, uint16_t, Word), 256> wcallbacks;
+
+
+    std::array<Opcode, 256> jumpTable_normal;
+    std::array<Opcode, 256> jumpTable_bcd;
 
     static void write_bank(Machine& m, uint16_t adr, Word v)
     {
@@ -270,13 +271,6 @@ private:
     {
         return m.rbank[adr >> 8][adr & 0xff];
     }
-
-    uint32_t cycles;
-
-    std::array<Opcode, 256> jumpTable_normal;
-    std::array<Opcode, 256> jumpTable_bcd;
-    // Current jumptable
-    const Opcode* jumpTable;
 
     template <int REG> constexpr auto& Reg() const
     {
@@ -303,6 +297,18 @@ private:
     // S V - b d i Z C
     // 1 1 0 0 0 0 1 1
 
+    enum STATUS_FLAGS
+    {
+        CARRY,
+        ZERO,
+        IRQ,
+        DECIMAL,
+        BRK,
+        xXx,
+        OVER,
+        SIGN
+    };
+
     enum STATUS_BITS
     {
         C = 0x1,
@@ -316,8 +322,9 @@ private:
     static constexpr auto SZC = S | Z | C;
     static constexpr auto SZCV = S | Z | C | V;
 
-    uint8_t get_SR() const { 
-        return sr  | ((result | (result>>2) ) & 0x80) | (!(result & 0xff) << 1) ;
+    uint8_t get_SR() const
+    {
+        return sr | ((result | (result >> 2)) & 0x80) | (!(result & 0xff) << 1);
     }
 
     template <bool DEC> void setDec()
@@ -345,8 +352,7 @@ private:
     {
         result = res;
 
-        if constexpr((BITS & (C|V)) != 0)
-            sr &= ~BITS;
+        if constexpr ((BITS & (C | V)) != 0) sr &= ~BITS;
         if constexpr ((BITS & C) != 0) sr |= ((res >> 8) & 1); // Apply carry
         if constexpr ((BITS & V) != 0)
             sr |= ((~(a ^ arg) & (a ^ res) & 0x80) >> 1); // Apply overflow
@@ -355,16 +361,15 @@ private:
     static constexpr bool SET = true;
     static constexpr bool CLEAR = false;
 
-    constexpr unsigned carry() const
-    {
-        return sr & 1;
-    }
+    constexpr unsigned carry() const { return sr & 1; }
 
     template <int FLAG, bool v> constexpr bool check() const
     {
         if constexpr (FLAG == ZERO) return result & 0xff ? !v : v;
-        if constexpr (FLAG == SIGN) return result & 0x280 ? v : !v;
-        else return (bool)(sr & (1 << FLAG)) == v;
+        if constexpr (FLAG == SIGN)
+            return result & 0x280 ? v : !v;
+        else
+            return (bool)(sr & (1 << FLAG)) == v;
     }
 
     /////////////////////////////////////////////////////////////////////////
@@ -425,6 +430,7 @@ private:
     // Read operand from PC and create effective adress depeding on 'MODE'
     template <int MODE> unsigned ReadEA()
     {
+        if constexpr (MODE == IMM) return pc++;
         if constexpr (MODE == ZP) return ReadPC8();
         if constexpr (MODE == ZPX) return ReadPC8(x);
         if constexpr (MODE == ZPY) return ReadPC8(y);
@@ -436,21 +442,9 @@ private:
         if constexpr (MODE == IND) return Read16(ReadPC16());
     }
 
-    template <int MODE> inline void StoreEA(unsigned v)
-    {
-        auto adr = ReadEA<MODE>();
-        Write(adr, v);
-    }
+    template <int MODE> void StoreEA(unsigned v) { Write(ReadEA<MODE>(), v); }
 
-    template <int MODE> unsigned LoadEA()
-    {
-        if constexpr (MODE == IMM)
-            return ReadPC();
-        else {
-            unsigned adr = ReadEA<MODE>();
-            return Read(adr);
-        }
-    }
+    template <int MODE> unsigned LoadEA() { return Read(ReadEA<MODE>()); }
 
     /////////////////////////////////////////////////////////////////////////
     ///
@@ -458,6 +452,7 @@ private:
     ///
     /////////////////////////////////////////////////////////////////////////
 
+    // Set flags, except for Z and S
     template <int FLAG, bool ON> static constexpr void Set(Machine& m)
     {
         if constexpr (FLAG == DECIMAL) m.setDec<ON>();
@@ -477,13 +472,13 @@ private:
 
     template <int FLAG, bool ON> static constexpr void Branch(Machine& m)
     {
-		auto pc = m.pc;
- 		int8_t diff = m.Read<POLICY::PC_AccessMode>(pc++); 
-        if(m.check<FLAG, ON>()) {
+        auto pc = m.pc;
+        int8_t diff = m.Read<POLICY::PC_AccessMode>(pc++);
+        if (m.check<FLAG, ON>()) {
             pc += diff;
-			m.cycles++;
-		}
-		m.pc = pc;
+            m.cycles++;
+        }
+        m.pc = pc;
     }
 
     template <int MODE, int INC> static constexpr void Inc(Machine& m)
@@ -501,10 +496,10 @@ private:
 
     // === COMPARE, ADD & SUBTRACT
 
-    template <int REG, int MODE> static constexpr void Bit(Machine& m)
+    template <int MODE> static constexpr void Bit(Machine& m)
     {
         unsigned z = m.LoadEA<MODE>();
-        m.result = (z & m.a) | ((z & 0x80)<<2);
+        m.result = (z & m.a) | ((z & 0x80) << 2);
         m.sr = (m.sr & ~V) | (z & V);
     }
 
@@ -872,8 +867,8 @@ public:
             } },
 
             { "bit", {
-                { 0x24, 3, ZP, Bit<X, ZP>},
-                { 0x2c, 4, ABS, Bit<X, ABS>},
+                { 0x24, 3, ZP, Bit<ZP>},
+                { 0x2c, 4, ABS, Bit<ABS>},
             } },
 
             { "rti", {
@@ -889,7 +884,7 @@ public:
                     m.ReadPC();
                     m.stack[m.sp] = m.pc >> 8;
                     m.stack[m.sp-1] = m.pc & 0xff;
-                    m.stack[m.sp-2] = m.get_SR();// | (1<<BRK);
+                    m.stack[m.sp-2] = m.get_SR();
                     m.sp -= 3;
                     m.pc = m.Read16(m.to_adr(0xfe, 0xff));
                 } }

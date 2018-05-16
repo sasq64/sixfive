@@ -147,11 +147,6 @@ static void Bench_sort(benchmark::State& state)
     m.writeRam(0x2000, sizeof(data) - 1);
     m.setPC(0x1000);
     printf("Opcodes %d\n", m.run(50000000));
-    // uint8_t temp[256];
-    // m.readRam(0x2000, temp, sizeof(data));
-    // for(int i=0; i<sizeof(data)+1; i++)
-    //	printf("%02x ", temp[i]);
-    // puts("");
     while (state.KeepRunning()) {
         for (int i = 1; i < (int)sizeof(data); i++)
             m.writeRam(0x2000 + i, data[i]);
@@ -160,14 +155,6 @@ static void Bench_sort(benchmark::State& state)
     }
 }
 BENCHMARK(Bench_sort);
-
-struct POLICY2
-{
-    static constexpr bool Debug = true;
-    static constexpr bool AlignReads = false;
-    static constexpr bool StatusOpt = false;
-    typedef uint8_t Word;
-};
 
 static void Bench_emulate(benchmark::State& state)
 {
@@ -196,20 +183,20 @@ static void Bench_allops(benchmark::State& state)
 {
     sixfive::Machine<> m;
     m.setPC(0x1000);
+    auto instr = m.getInstructions();
+    int total;
     while (state.KeepRunning()) {
+        total = 0;
         m.setPC(0x1000);
-        for (const auto& i : m.getInstructions()) {
+        for (const auto& i : instr) {
+            total += i.opcodes.size();
             for (const auto& o : i.opcodes) {
                 o.op(m);
             }
         }
     }
+    printf("Opcodes %d\n", total);
 }
 BENCHMARK(Bench_allops);
-/*
-int main(int argc, char **argv) {
-    sixfive::Machine<> m;
-    return 0;
-}*/
 
 } // namespace sixfive
