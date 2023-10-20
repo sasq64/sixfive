@@ -6,15 +6,15 @@ set(APONE ../apone/mods)
 
 set(SOURCE_FILES
 	main.cpp
-	assembler.cpp
-	parser.cpp
+	#assembler.cpp
+	#parser.cpp
 	tests.cpp
 )
 
-include_directories(/usr/local/include ${APONE})
-
-add_subdirectory(${APONE}/coreutils coreutils)
-add_subdirectory(${APONE}/bbsutils bbsutils)
+include_directories(/usr/local/include /opt/homebrew/include)
+link_directories(/opt/homebrew/lib)
+#add_subdirectory(${APONE}/coreutils coreutils)
+#add_subdirectory(${APONE}/bbsutils bbsutils)
 add_subdirectory(zyan-disassembler-engine)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Wno-error=deprecated-declarations -O3 -fomit-frame-pointer -std=c++17")
@@ -24,7 +24,7 @@ add_custom_target(headers SOURCES ${IncFiles})
 
 add_executable(sixfive ${SOURCE_FILES})
 target_include_directories(sixfive PRIVATE .)
-target_link_libraries(sixfive PRIVATE coreutils bbsutils Zydis benchmark)
+target_link_libraries(sixfive PRIVATE Zydis benchmark)
 target_compile_definitions(sixfive PRIVATE -DUSE_APONE)
 
 if(UNIX)

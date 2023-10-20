@@ -1,11 +1,11 @@
-#include "compile.h"
+//#include "compile.h"
 #include "emulator.h"
-#include "monitor.h"
+//#include "monitor.h"
 
 #include "CLI11.hpp"
 
-#include <coreutils/file.h>
-#include <coreutils/utils.h>
+//#include <coreutils/file.h>
+//#include <coreutils/utils.h>
 
 #include <benchmark/benchmark.h>
 
@@ -13,103 +13,13 @@
 #include <tuple>
 #include <unordered_map>
 
-#include <bbsutils/console.h>
-#include <bbsutils/editor.h>
+//#include <bbsutils/console.h>
+//#include <bbsutils/editor.h>
 
 // sixfive -s <source> -io [c64|simple|none] -break [adr] -trace
 
-struct DebugPolicy : public sixfive::DefaultPolicy
-{
+struct CheckPolicy : public sixfive::DefaultPolicy {
 
-    using Machine = sixfive::Machine<DebugPolicy>;
-
-    Machine& machine;
-
-    bbs::Console* console;
-
-    DebugPolicy(Machine& m) : machine(m) {
-        using namespace bbs;
-        using namespace utils;
-        console = Console::createLocalConsole();
-    }
-
-    template <typename ... ARGS>
-    void print(const std::string& fmt, ARGS ... params) {
-        auto s = utils::format(fmt, params...);
-        console->write(s);
-    };
-
-    static inline constexpr void writeIO(Machine& m, uint16_t adr, uint8_t v) {
-        //m.policy().print("Wrote %04x := %02x\n", adr, v);
-        auto* console = m.policy().console;
-        int x = (adr - 0xd000) % 40; 
-        int y = (adr - 0xd000) / 40; 
-        console->put(x, y, v);
-        console->flush();
-    }
-    static inline constexpr uint8_t readIO(Machine&, uint16_t adr)
-    {
-        return 0;
-    }
-    void checkEffect()
-    {
-        static sixfive::Machine<DebugPolicy> om;
-		auto& m = machine;
-        if (om.regPC() != 0) {
-            // if(om.pc != m.pc)
-            print("%04x : ", (unsigned)om.regPC());
-            print("[ ");
-            if (om.regA() != m.regA()) print("A:%02x ", m.regA());
-            if (om.regX() != m.regX()) print("X:%02x ", m.regX());
-            if (om.regY() != m.regY()) print("Y:%02x ", m.regY());
-            if (om.regSR() != m.regSR()) print("SR:%02x ", m.regSR());
-            if (om.regSP() != m.regSP()) print("SP:%02x ", m.regSP());
-            bool first = true;
-            for (int i = 0; i < 65536; i++)
-                if (m.Ram(i) != om.Ram(i)) {
-                    if (!first) print(" # ");
-                    first = false;
-                    print("%04x: ", i);
-                    while (m.Ram(i) != om.Ram(i)) {
-                        print("%02x ", m.Ram(i) & 0xff);
-                        om.Ram(i) = m.Ram(i);
-                    }
-                }
-            print("]\n");
-        } else {
-            for (int i = 0; i < 65536; i++)
-                om.Ram(i) = m.Ram(i);
-        }
-        om.regs() = m.regs();
-    }
-
-    std::unordered_map<uint16_t, std::function<void(Machine& m)>> breaks;
-
-    void set_break(uint16_t pc, std::function<void(Machine& m)> f)
-    {
-        breaks[pc] = std::move(f);
-    }
-
-    inline static bool doTrace = false;
-
-    static bool eachOp(DebugPolicy& dp)
-    {
-        static int lastpc = -1;
-        if (doTrace) dp.checkEffect();
-		auto& m = dp.machine;
-        if (m.regPC() == lastpc) {
-            dp.print("STALL\n");
-            return true;
-        }
-        lastpc = m.regPC();
-        return false;
-    }
-
-};
-
-
-struct CheckPolicy : public sixfive::DefaultPolicy
-{
 	sixfive::Machine<CheckPolicy>& machine;
 
 	CheckPolicy(sixfive::Machine<CheckPolicy>& m) : machine(m) {}
@@ -186,8 +96,9 @@ int main(int argc, char** argv)
 
     if (runFullTest) {
         printf("Running full 6502 test...\n");
-        utils::File f{"6502test.bin"};
-        auto data = f.readAll();
+        std::ifstream stream("6502test.bin", std::ios::in | std::ios::binary);
+        std::vector<uint8_t> data((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+
         data[0x3b91] = 0x60;
         Machine<CheckPolicy> m;
         m.writeRam(0, &data[0], 0x10000);
@@ -199,18 +110,18 @@ int main(int argc, char** argv)
     if(runFullTest || doBenchmarks || checkOpcodes)
         return 0;
 
-    Machine<DebugPolicy> m;
-
-    if (!asmFile.empty()) {
-        bool ok = compile(asmFile, m);
-
-        if (!ok) {
-            printf("Parse failed\n");
-            return -1;
-        }
-    }
-    if (doMonitor) monitor(m);
-    m.setPC(0x01000);
-    m.run(100000);
+    // Machine<DebugPolicy> m;
+    //
+    // if (!asmFile.empty()) {
+    //     bool ok = compile(asmFile, m);
+    //
+    //     if (!ok) {
+    //         printf("Parse failed\n");
+    //         return -1;
+    //     }
+    // }
+    // if (doMonitor) monitor(m);
+    //m.setPC(0x01000);
+    //m.run(100000);
     return 0;
 }

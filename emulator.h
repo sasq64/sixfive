@@ -51,11 +51,11 @@ struct DefaultPolicy
     static constexpr bool ExitOnStackWrap = true;
 
     // PC accesses does not normally need to work in IO areas
-    static constexpr int PC_AccessMode = BANKED;
+    static constexpr int PC_AccessMode = DIRECT;
 
     // Generic reads and writes should normally not be direct
-    static constexpr int Read_AccessMode = CALLBACK;
-    static constexpr int Write_AccessMode = CALLBACK;
+    static constexpr int Read_AccessMode = DIRECT;
+    static constexpr int Write_AccessMode = DIRECT;
 
     static constexpr int MemSize = 65536;
 

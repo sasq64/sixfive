@@ -2,7 +2,7 @@
 #include "zyan-disassembler-engine/Zydis/Zydis.hpp"
 #include <benchmark/benchmark.h>
 
-#include <coreutils/format.h>
+//#include <coreutils/format.h>
 
 #include <cstdio>
 #include <vector>
