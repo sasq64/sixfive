@@ -218,17 +218,123 @@ And here are our jump table entries;
     { "txs", { { 0x9a, 2, NONE, Transfer<X, SP> } } },
     { "tsx", { { 0xba, 2, NONE, Transfer<SP, X> } } },
 ```
+---
+## Benchmarking
+---
 
-
-# Agenda
-
-1. Introduction
-2. Deep-dive
-3. ...
+## Intermission - it used to be so easy!
 
 ---
 
-# Introduction
+[Zydis](https://github.com/zyantific/zydis) 
+
+---
+
+```c++
+    Result r;
+    while (decoder.decodeInstruction(info)) {
+    
+        if (info.mnemonic >= InstructionMnemonic::JA &&
+            info.mnemonic <= InstructionMnemonic::JS)
+            r.jumps++;
+
+        switch (info.mnemonic) {
+        case InstructionMnemonic::RET: return r;
+        case InstructionMnemonic::CALL: r.calls++; break;
+        default: break;
+        }
+        r.opcodes++;
+    }
+```
+
+---
+
+```bash
+$ build/sixfive -O
+### AVG OPCODES: 21 TOTAL OPS/CALLS/JUMPS: 3306/0/4
+$
+```
+???
+
+Here we see that our 156 functions disassembles to 3306 x86 opcodes in
+total.
+
+Interestingly we also have 4 branches. The full output show the four
+offending functions;
+
+---
+
+```bash
+rti (34/0/1)
+rts (13/0/1)
+plp (22/0/1)
+bmi (14/0/1)
+```
+
+---
+
+```c++
+#define LDA(value, clk_inc, pc_inc) \
+    do {                            \
+        BYTE tmp = (BYTE)(value);   \
+        reg_a_write(tmp);           \
+        CLK_ADD(CLK, (clk_inc));    \
+        LOCAL_SET_NZ(tmp);          \
+        INC_PC(pc_inc);             \
+    } while (0)
+
+#define LDX(value, clk_inc, pc_inc) \
+    do {                            \
+        reg_x_write((BYTE)(value)); \
+        LOCAL_SET_NZ(reg_x_read);   \
+        CLK_ADD(CLK, (clk_inc));    \
+        INC_PC(pc_inc);             \
+    } while (0)
+
+#define LDY(value, clk_inc, pc_inc) \
+    do {                            \
+        reg_y_write((BYTE)(value)); \
+        LOCAL_SET_NZ(reg_y_read);   \
+        CLK_ADD(CLK, (clk_inc));    \
+        INC_PC(pc_inc);             \
+    } while (0)
+```
+
+---
+
+```c++
+    case 0xa0:          /* LDY #$nn */
+        LDY(p1, 0, 2);
+        break;
+
+    case 0xa1:          /* LDA ($nn,X) */
+        LDA(LOAD_IND_X(p1), 1, 2);
+        break;
+
+    case 0xa2:          /* LDX #$nn */
+        LDX(p1, 0, 2);
+        break;
+```
+
+---
+
+```c++
+    template <int REG, int MODE>
+    static constexpr void Load(Machine& m)
+    {
+        m.Reg<REG>() = m.LoadEA<MODE>();
+        m.set_SZ<REG>();
+    }
+```
+
+```c++
+    { 0xa0, 2, IMM, Load<Y, IMM>},
+    { 0xa1, 6, INDX, Load<A, INDX>},
+    { 0xa2, 2, IMM, Load<X, IMM>},
+```
+
+---
+
 
     </textarea>
     <script src="https://remarkjs.com/downloads/remark-latest.min.js">
